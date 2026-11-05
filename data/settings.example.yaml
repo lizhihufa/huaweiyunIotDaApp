@@ -1,0 +1,21 @@
+# 复制为 data/settings.yaml 后填写，或直接在网页「系统设置」中保存
+
+huawei:
+  ak: ""
+  sk: ""
+  project_id: ""
+  region: "cn-north-4"
+  # 应用侧地址（iotda-app），含 https://
+  iotda_endpoint: ""
+  use_derived_auth: true
+  device_id: ""
+  service_id: ""
+  product_id: ""
+
+poll:
+  interval_sec: 2
+  history_enabled: false
+
+server:
+  host: "127.0.0.1"
+  port: 8790

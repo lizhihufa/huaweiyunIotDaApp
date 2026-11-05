@@ -1,0 +1,739 @@
+{
+  "items": [
+    {
+      "id": "stm32_mcu",
+      "name": "STM32 主控板",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "mcu",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_mcu"
+      },
+      "builtin": true,
+      "desc": "STM32 最小系统 / 主控模块",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "esp32_devkit",
+      "name": "ESP32 DevKit",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "mcu",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_esp32"
+      },
+      "builtin": true,
+      "desc": "Wi-Fi / BLE 双模开发板",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "esp8266_nodemcu",
+      "name": "ESP8266 NodeMCU",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "mcu",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_esp8266"
+      },
+      "builtin": true,
+      "desc": "低成本 Wi-Fi 开发板",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "arduino_uno",
+      "name": "Arduino Uno",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "mcu",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_arduino"
+      },
+      "builtin": true,
+      "desc": "经典入门开发板",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "raspberry_pi_zero",
+      "name": "树莓派 Zero",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "gateway",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_rpi"
+      },
+      "builtin": true,
+      "desc": "边缘网关 / 轻量 Linux 板",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "ldr_module",
+      "name": "光敏电阻模块",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "ldr",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_ldr"
+      },
+      "builtin": true,
+      "desc": "光照强度检测",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "dht11",
+      "name": "DHT11 温湿度",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "sensor_temp",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_dht11"
+      },
+      "builtin": true,
+      "desc": "空气温湿度传感器",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "soil_moisture",
+      "name": "土壤湿度探头",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "soil_sensor",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_soil"
+      },
+      "builtin": true,
+      "desc": "电阻式土壤湿度传感器",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "hc_sr04",
+      "name": "HC-SR04 超声波",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "ultrasonic",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_ultrasonic"
+      },
+      "builtin": true,
+      "desc": "测距 / 水位辅助",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "mq2",
+      "name": "MQ-2 气体传感器",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "gas_sensor",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_mq2"
+      },
+      "builtin": true,
+      "desc": "烟雾 / 可燃气体检测",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "pir_motion",
+      "name": "PIR 人体红外",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "pir",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_pir"
+      },
+      "builtin": true,
+      "desc": "人体感应传感器",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "water_level",
+      "name": "水位传感器",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "water_sensor",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_water"
+      },
+      "builtin": true,
+      "desc": "液位 / 浸水检测",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "camera_module",
+      "name": "摄像头模块",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "camera",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_camera"
+      },
+      "builtin": true,
+      "desc": "OV2640 / USB 摄像头示意",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "relay_module",
+      "name": "继电器模块",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "relay",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_relay"
+      },
+      "builtin": true,
+      "desc": "开关执行器",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "sg90_servo",
+      "name": "SG90 舵机",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "servo",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_servo"
+      },
+      "builtin": true,
+      "desc": "微型舵机",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "water_pump",
+      "name": "微型水泵",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "pump",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_pump"
+      },
+      "builtin": true,
+      "desc": "灌溉 / 抽水执行器",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "solenoid_valve",
+      "name": "电磁阀",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "valve",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_valve"
+      },
+      "builtin": true,
+      "desc": "管路开关阀",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "cooling_fan",
+      "name": "散热风机",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "fan",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_fan"
+      },
+      "builtin": true,
+      "desc": "大棚通风 / 散热",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "street_lamp_head",
+      "name": "路灯灯头",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "lamp",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_lamp"
+      },
+      "builtin": true,
+      "desc": "路灯执行部件",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "led_strip",
+      "name": "LED 灯带模块",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "led",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_led"
+      },
+      "builtin": true,
+      "desc": "指示灯 / 补光",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "wifi_module",
+      "name": "Wi-Fi 通信模块",
+      "kind": "module",
+      "layer": "通信层",
+      "part_id": "wifi",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_wifi"
+      },
+      "builtin": true,
+      "desc": "无线通信模块",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "oled_096",
+      "name": "0.96 OLED 屏",
+      "kind": "module",
+      "layer": "人机",
+      "part_id": "oled",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_oled"
+      },
+      "builtin": true,
+      "desc": "SSD1306 显示模块",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "lora_module",
+      "name": "LoRa 模块",
+      "kind": "module",
+      "layer": "通信层",
+      "part_id": "lora",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_lora"
+      },
+      "builtin": true,
+      "desc": "远距离低功耗通信",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "street_light_kit",
+      "name": "智能路灯整机（示例）",
+      "kind": "module",
+      "layer": "结构",
+      "part_id": "assembly",
+      "model": {
+        "kind": "builtin",
+        "id": "street_light"
+      },
+      "builtin": true,
+      "desc": "内置路灯装配：节点名=partId",
+      "created_at": "2026-11-04T01:21:40+08:00",
+      "updated_at": "2026-11-04T01:21:40+08:00"
+    },
+    {
+      "id": "esp32_s3",
+      "name": "ESP32-S3",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "mcu",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_esp32s3"
+      },
+      "builtin": true,
+      "desc": "AI / 双 USB 开发板",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "arduino_nano",
+      "name": "Arduino Nano",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "mcu",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_arduino_nano"
+      },
+      "builtin": true,
+      "desc": "紧凑型 Arduino",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "raspberry_pi4",
+      "name": "树莓派 4",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "gateway",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_rpi4"
+      },
+      "builtin": true,
+      "desc": "边缘计算网关",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "nrf52840",
+      "name": "nRF52840",
+      "kind": "board",
+      "layer": "控制层",
+      "part_id": "mcu",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_nrf"
+      },
+      "builtin": true,
+      "desc": "低功耗蓝牙 SoC",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "dht22",
+      "name": "DHT22 温湿度",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "sensor_temp",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_dht22"
+      },
+      "builtin": true,
+      "desc": "高精度温湿度",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "bmp280",
+      "name": "BMP280 气压",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "pressure",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_bmp280"
+      },
+      "builtin": true,
+      "desc": "气压 / 海拔",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "bh1750",
+      "name": "BH1750 光照",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "lux",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_bh1750"
+      },
+      "builtin": true,
+      "desc": "数字光照传感器",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "ph_sensor",
+      "name": "pH 探头",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "ph_sensor",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_ph"
+      },
+      "builtin": true,
+      "desc": "水质酸碱度",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "rain_sensor",
+      "name": "雨滴传感器",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "rain",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_rain"
+      },
+      "builtin": true,
+      "desc": "降雨检测",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "flow_sensor",
+      "name": "水流流量计",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "flow",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_flow"
+      },
+      "builtin": true,
+      "desc": "灌溉流量",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "mq135",
+      "name": "MQ-135 空气质量",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "gas_sensor",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_mq135"
+      },
+      "builtin": true,
+      "desc": "CO2 / 空气质量",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "gps_neo",
+      "name": "GPS NEO-6M",
+      "kind": "sensor",
+      "layer": "传感层",
+      "part_id": "gps",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_gps"
+      },
+      "builtin": true,
+      "desc": "定位模块",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "button_mod",
+      "name": "按键模块",
+      "kind": "sensor",
+      "layer": "人机",
+      "part_id": "button",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_button"
+      },
+      "builtin": true,
+      "desc": "输入按键",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "stepper_28byj",
+      "name": "步进电机",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "stepper",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_stepper"
+      },
+      "builtin": true,
+      "desc": "28BYJ / 驱动",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "buzzer",
+      "name": "有源蜂鸣器",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "buzzer",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_buzzer"
+      },
+      "builtin": true,
+      "desc": "报警提示音",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "heater_pad",
+      "name": "加热垫",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "heater",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_heater"
+      },
+      "builtin": true,
+      "desc": "育苗加热",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "sprinkler",
+      "name": "喷灌头",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "sprinkler",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_sprinkler"
+      },
+      "builtin": true,
+      "desc": "喷淋执行器",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "rgb_led",
+      "name": "RGB 灯珠",
+      "kind": "actuator",
+      "layer": "执行层",
+      "part_id": "rgb",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_rgb"
+      },
+      "builtin": true,
+      "desc": "彩色指示",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "hc05",
+      "name": "蓝牙 HC-05",
+      "kind": "module",
+      "layer": "通信层",
+      "part_id": "bluetooth",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_bt"
+      },
+      "builtin": true,
+      "desc": "经典蓝牙串口",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "tft_18",
+      "name": "1.8 TFT 彩屏",
+      "kind": "module",
+      "layer": "人机",
+      "part_id": "tft",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_tft"
+      },
+      "builtin": true,
+      "desc": "彩色显示",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "nbiot",
+      "name": "NB-IoT 模块",
+      "kind": "module",
+      "layer": "通信层",
+      "part_id": "nbiot",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_nbiot"
+      },
+      "builtin": true,
+      "desc": "蜂窝窄带物联网",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "rs485",
+      "name": "RS485 模块",
+      "kind": "module",
+      "layer": "通信层",
+      "part_id": "rs485",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_rs485"
+      },
+      "builtin": true,
+      "desc": "工业总线",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "sd_card",
+      "name": "SD 卡模块",
+      "kind": "module",
+      "layer": "存储",
+      "part_id": "sd",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_sd"
+      },
+      "builtin": true,
+      "desc": "本地存储",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "battery_pack",
+      "name": "电池组",
+      "kind": "module",
+      "layer": "电源",
+      "part_id": "battery",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_battery"
+      },
+      "builtin": true,
+      "desc": "供电模块",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "breadboard",
+      "name": "面包板",
+      "kind": "module",
+      "layer": "结构",
+      "part_id": "breadboard",
+      "model": {
+        "kind": "builtin",
+        "id": "dev_breadboard"
+      },
+      "builtin": true,
+      "desc": "原型搭接",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    }
+  ]
+}

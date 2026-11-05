@@ -1,0 +1,664 @@
+{
+  "items": [
+    {
+      "id": "house_small",
+      "name": "小住宅",
+      "kind": "residential",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_house_small"
+      },
+      "builtin": true,
+      "desc": "单层住宅",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "house_two_story",
+      "name": "两层住宅",
+      "kind": "residential",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_house_two"
+      },
+      "builtin": true,
+      "desc": "双层民居",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "apartment_block",
+      "name": "公寓楼",
+      "kind": "residential",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_apartment"
+      },
+      "builtin": true,
+      "desc": "多层公寓",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "greenhouse_tunnel",
+      "name": "拱形大棚",
+      "kind": "greenhouse",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_greenhouse"
+      },
+      "builtin": true,
+      "desc": "种植拱棚",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "greenhouse_glass",
+      "name": "玻璃温室",
+      "kind": "greenhouse",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_glasshouse"
+      },
+      "builtin": true,
+      "desc": "玻璃房温室",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "crop_tomato",
+      "name": "番茄架",
+      "kind": "greenhouse",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_tomato"
+      },
+      "builtin": true,
+      "desc": "棚内作物",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "crop_row",
+      "name": "作物行",
+      "kind": "greenhouse",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_crop"
+      },
+      "builtin": true,
+      "desc": "种植行",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "shop_small",
+      "name": "小商店",
+      "kind": "shop",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_shop"
+      },
+      "builtin": true,
+      "desc": "临街商铺",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "shop_market",
+      "name": "市集摊位",
+      "kind": "shop",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_market"
+      },
+      "builtin": true,
+      "desc": "露天摊位",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "shop_warehouse",
+      "name": "仓储小库",
+      "kind": "shop",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_warehouse"
+      },
+      "builtin": true,
+      "desc": "商用库房",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "grass_patch",
+      "name": "草地块",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_grass"
+      },
+      "builtin": true,
+      "desc": "短草坪",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "grass_tall",
+      "name": "高草丛",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_grass_tall"
+      },
+      "builtin": true,
+      "desc": "高草",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "tree_deciduous",
+      "name": "阔叶树",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_tree"
+      },
+      "builtin": true,
+      "desc": "行道树",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "tree_pine",
+      "name": "松树",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_pine"
+      },
+      "builtin": true,
+      "desc": "针叶树",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "tree_fruit",
+      "name": "果树",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_fruit_tree"
+      },
+      "builtin": true,
+      "desc": "果树",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "plant_bush",
+      "name": "灌木盆栽",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_plant"
+      },
+      "builtin": true,
+      "desc": "盆栽",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "plant_flower",
+      "name": "花卉丛",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_flower"
+      },
+      "builtin": true,
+      "desc": "花卉",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "plant_vine",
+      "name": "藤蔓架",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_vine"
+      },
+      "builtin": true,
+      "desc": "藤蔓",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "wood_log",
+      "name": "原木",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_wood"
+      },
+      "builtin": true,
+      "desc": "装饰木",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "wood_fence",
+      "name": "木栅栏",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_fence"
+      },
+      "builtin": true,
+      "desc": "围栏",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "prop_rock",
+      "name": "石块",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_rock"
+      },
+      "builtin": true,
+      "desc": "景观石",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "crop_wheat",
+      "name": "麦田簇",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_wheat"
+      },
+      "builtin": true,
+      "desc": "麦田装饰",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "crop_corn",
+      "name": "玉米株",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_corn"
+      },
+      "builtin": true,
+      "desc": "玉米",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "crop_rice",
+      "name": "稻丛",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_rice"
+      },
+      "builtin": true,
+      "desc": "稻丛",
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "road_tile",
+      "name": "马路砖",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_tile"
+      },
+      "builtin": true,
+      "desc": "正方形路砖，可网格铺设",
+      "snap": 2,
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "road_straight",
+      "name": "直道段",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_straight"
+      },
+      "builtin": true,
+      "desc": "直线马路段",
+      "snap": 2,
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "road_cross",
+      "name": "十字路口",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_cross"
+      },
+      "builtin": true,
+      "desc": "交叉路口砖",
+      "snap": 2,
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "road_sidewalk",
+      "name": "人行道",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_sidewalk"
+      },
+      "builtin": true,
+      "desc": "人行道板",
+      "snap": 2,
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "prop_path",
+      "name": "石板小路",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_path"
+      },
+      "builtin": true,
+      "desc": "石板小路段",
+      "snap": 1,
+      "created_at": "2026-11-04T01:37:20+08:00",
+      "updated_at": "2026-11-04T01:37:20+08:00"
+    },
+    {
+      "id": "villa",
+      "name": "别墅",
+      "kind": "residential",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_villa"
+      },
+      "builtin": true,
+      "desc": "独栋别墅",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "townhouse",
+      "name": "联排屋",
+      "kind": "residential",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_townhouse"
+      },
+      "builtin": true,
+      "desc": "联排住宅",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "courtyard",
+      "name": "四合院",
+      "kind": "residential",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_courtyard"
+      },
+      "builtin": true,
+      "desc": "院落住宅",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "nursery_bench",
+      "name": "育苗架",
+      "kind": "greenhouse",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_nursery"
+      },
+      "builtin": true,
+      "desc": "穴盘育苗",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "water_tank",
+      "name": "蓄水罐",
+      "kind": "greenhouse",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_tank"
+      },
+      "builtin": true,
+      "desc": "灌溉水箱",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "shade_net",
+      "name": "遮阳网架",
+      "kind": "greenhouse",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_shade"
+      },
+      "builtin": true,
+      "desc": "遮阳设施",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "cafe",
+      "name": "咖啡馆",
+      "kind": "shop",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_cafe"
+      },
+      "builtin": true,
+      "desc": "临街咖啡店",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "farm_store",
+      "name": "农资店",
+      "kind": "shop",
+      "model": {
+        "kind": "builtin",
+        "id": "bld_farm_store"
+      },
+      "builtin": true,
+      "desc": "农资商铺",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "tree_willow",
+      "name": "柳树",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_willow"
+      },
+      "builtin": true,
+      "desc": "垂柳",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "tree_palm",
+      "name": "棕榈",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_palm"
+      },
+      "builtin": true,
+      "desc": "热带树",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "bamboo",
+      "name": "竹丛",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_bamboo"
+      },
+      "builtin": true,
+      "desc": "竹子",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "sunflower",
+      "name": "向日葵",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_sunflower"
+      },
+      "builtin": true,
+      "desc": "花卉作物",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "bench",
+      "name": "长椅",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_bench"
+      },
+      "builtin": true,
+      "desc": "街边长椅",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "fountain",
+      "name": "喷泉",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_fountain"
+      },
+      "builtin": true,
+      "desc": "景观喷泉",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "mailbox",
+      "name": "邮筒",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_mailbox"
+      },
+      "builtin": true,
+      "desc": "路边邮筒",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "yard_lamp",
+      "name": "庭院灯",
+      "kind": "decoration",
+      "model": {
+        "kind": "builtin",
+        "id": "scene_lamp_deco"
+      },
+      "builtin": true,
+      "desc": "装饰路灯",
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "road_t",
+      "name": "丁字路口",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_t"
+      },
+      "builtin": true,
+      "desc": "T 型路口",
+      "snap": 2,
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "road_curve",
+      "name": "弯道",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_curve"
+      },
+      "builtin": true,
+      "desc": "转弯路段",
+      "snap": 2,
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "road_zebra",
+      "name": "斑马线",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_zebra"
+      },
+      "builtin": true,
+      "desc": "人行横道",
+      "snap": 2,
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "parking",
+      "name": "停车位",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_parking"
+      },
+      "builtin": true,
+      "desc": "停车格",
+      "snap": 2,
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "bridge",
+      "name": "小桥",
+      "kind": "road",
+      "model": {
+        "kind": "builtin",
+        "id": "road_bridge"
+      },
+      "builtin": true,
+      "desc": "过河小桥",
+      "snap": 2,
+      "created_at": "2026-11-04T10:37:24+08:00",
+      "updated_at": "2026-11-04T10:37:24+08:00"
+    }
+  ]
+}

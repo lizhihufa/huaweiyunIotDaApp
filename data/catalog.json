@@ -1,0 +1,105 @@
+{
+  "devices": [
+    {
+      "id": "cc29248f-95d9-4734-9688-1a0918620623",
+      "name": "默认设备",
+      "device_id": "6ac83e977f2e6c302fa147e4_grain_warehouse_monitoring",
+      "service_id": "storage",
+      "group": "",
+      "location": "",
+      "note": "连接时自动创建"
+    }
+  ],
+  "metrics": [
+    {
+      "name": "DHT11",
+      "property_name": "DHT11",
+      "unit": "",
+      "type": "number",
+      "writable": false,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "58c53319-028a-4c06-b728-58857188e355"
+    },
+    {
+      "name": "DHT22-A",
+      "property_name": "DHT22-A",
+      "unit": "",
+      "type": "number",
+      "writable": false,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "0c7dc642-df1e-4c2d-99d8-74e8c399d550"
+    },
+    {
+      "name": "DHT22-B",
+      "property_name": "DHT22-B",
+      "unit": "",
+      "type": "number",
+      "writable": false,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "7c889f7f-7aed-4f03-8013-488e71536e68"
+    },
+    {
+      "name": "DS18B20",
+      "property_name": "DS18B20",
+      "unit": "",
+      "type": "string",
+      "writable": false,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "07b4ed43-96f8-4d5f-be9f-ef3fcc1589ba"
+    },
+    {
+      "name": "MQ-2",
+      "property_name": "MQ-2",
+      "unit": "",
+      "type": "string",
+      "writable": false,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "733f1683-72ba-4657-8482-0caa263fc56a"
+    },
+    {
+      "name": "fan",
+      "property_name": "fan",
+      "unit": "",
+      "type": "boolean",
+      "writable": true,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "cacb9670-b89e-4a11-804f-ae6ad4dd6791"
+    },
+    {
+      "name": "beep",
+      "property_name": "beep",
+      "unit": "",
+      "type": "boolean",
+      "writable": false,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "e44c4646-e93d-4872-8545-0de8fcb66052"
+    },
+    {
+      "name": "led",
+      "property_name": "led",
+      "unit": "",
+      "type": "boolean",
+      "writable": false,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "a9589939-8486-4d96-92d3-d92c59f6ad28"
+    },
+    {
+      "name": "automaticMode",
+      "property_name": "automaticMode",
+      "unit": "",
+      "type": "boolean",
+      "writable": true,
+      "note": "从云端影子同步",
+      "device_ref": "cc29248f-95d9-4734-9688-1a0918620623",
+      "id": "f1186c3f-1b96-4d4b-a6f5-86969d90a8e4"
+    }
+  ]
+}

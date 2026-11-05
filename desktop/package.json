@@ -1,0 +1,64 @@
+{
+  "name": "huaweiyunapp-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "华为云监测控制平台桌面客户端",
+  "main": "main.js",
+  "author": "华为云监测控制平台",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.huaweiyunapp.monitor",
+    "productName": "华为云监测控制平台",
+    "copyright": "Copyright © 华为云监测控制平台",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "build/icon.png",
+      "build/icon.ico"
+    ],
+    "icon": "build/icon.png",
+    "extraResources": [
+      {
+        "from": "../build/client/backend",
+        "to": "backend"
+      },
+      {
+        "from": "../build/client/web",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "artifactName": "HuaweiYunMonitor-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "华为云监测控制平台",
+      "installerLanguages": ["zh_CN", "en_US"],
+      "language": "2052"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}
