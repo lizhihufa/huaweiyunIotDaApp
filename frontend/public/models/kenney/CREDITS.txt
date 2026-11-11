@@ -1,0 +1,4 @@
+﻿Kenney assets (CC0 1.0)
+Source: https://kenney.nl
+Mirror: https://github.com/shorepine/kenney
+Credit appreciated but not required: Kenney.nl

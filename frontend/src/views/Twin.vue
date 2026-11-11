@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api } from "../api";
+import { api, connectRealtime } from "../api";
 import { countAnnotations } from "../twin/assembleFromAnnotations";
 import { BUILTIN_PARTS, mergePartOptions } from "../twin/partCatalog";
 import { ROOM_FOCUS_PRESETS } from "../twin/buildEnvironments";
@@ -15,9 +15,13 @@ import {
 import { createBuildHistory } from "../twin/buildHistory";
 import { findCollision } from "../twin/buildGrid";
 import {
+  anyActuatorOn,
   collectAlerts,
   collectDeviceStatuses,
+  isActuatorProperty,
+  isBooleanLike,
   mergeDemoShadow,
+  truthyOn,
 } from "../twin/deviceStatus";
 import { PLACE_CATEGORIES, SCENE_KIND_LABEL, resolveSnap } from "../twin/placeCatalog";
 import { autotileRoadProps, isRoadNetworkProp } from "../twin/roadAutotile";
@@ -47,7 +51,13 @@ const deviceLibrary = ref([]);
 const placeCategory = ref("road");
 const placeBrushId = ref("");
 const shadowProps = ref({});
+/** 云端写失败时本地覆盖，保证演示可双向控制 */
+const localShadowOverrides = ref({});
 const metricOptions = ref([]);
+const metricMeta = ref({}); // property -> { writable, type, unit, name }
+const shadowConnected = ref(false);
+const controlBusy = ref(false);
+const draftNumberValue = ref("");
 const buildHist = createBuildHistory();
 const canUndo = ref(false);
 const canRedo = ref(false);
@@ -127,14 +137,38 @@ const selectedBindingValue = computed(() => {
   return v === undefined ? null : v;
 });
 
-/** 云端影子 + 本地演示量（无连接也能看状态色） */
-const effectiveShadow = computed(() =>
-  mergeDemoShadow(shadowProps.value, {
+/** 云端影子 + 本地演示量 + 本地覆盖（写属性优先） */
+const effectiveShadow = computed(() => ({
+  ...mergeDemoShadow(shadowProps.value, {
     lux: lux.value,
     lampOn: lampOn.value,
     simHour: rules.sim_hour,
-  })
+  }),
+  ...localShadowOverrides.value,
+}));
+
+const selectedBindingKey = computed(() =>
+  String(selectedPlaced.value?.binding?.property || "").trim()
 );
+
+const selectedIsActuator = computed(() => isActuatorProperty(selectedBindingKey.value));
+
+const selectedIsSwitch = computed(() => {
+  if (!selectedBindingKey.value) return false;
+  const v = effectiveShadow.value[selectedBindingKey.value];
+  if (v === undefined || v === null) return selectedIsActuator.value;
+  return isBooleanLike(v) || selectedIsActuator.value;
+});
+
+const selectedThresholds = computed(() => {
+  const b = selectedPlaced.value?.binding || {};
+  return {
+    warnMin: b.warnMin ?? "",
+    warnMax: b.warnMax ?? "",
+    alarmMin: b.alarmMin ?? "",
+    alarmMax: b.alarmMax ?? "",
+  };
+});
 
 const deviceStatuses = computed(() =>
   collectDeviceStatuses(project.value?.scene_config?.props || [], effectiveShadow.value)
@@ -187,6 +221,7 @@ const sensorHudItems = computed(() => {
 let demoTimer = null;
 let histTimer = null;
 let shadowTimer = null;
+let realtimeWs = null;
 
 function setMsg(text, type = "") {
   msg.value = text;
@@ -362,8 +397,8 @@ function patchSceneConfig(patch) {
 }
 
 function recomputeLamp() {
-  // lampOn 由下方赋值；昼夜光照同步
-  lampOn.value = nextLampState({
+  // 规则判定 + 已绑定执行器影子（任一开则亮）
+  const byRule = nextLampState({
     lux: lux.value,
     lampOn: lampOn.value,
     threshold: rules.threshold_lx,
@@ -371,6 +406,8 @@ function recomputeLamp() {
     mode: rules.mode,
     manualOn: rules.manual_lamp_on,
   });
+  const act = anyActuatorOn(project.value?.scene_config?.props || [], effectiveShadow.value);
+  lampOn.value = act === null ? byRule : byRule || act === true;
   viewer.setLampOn(lampOn.value);
 }
 
@@ -933,19 +970,163 @@ function bindSelectedProperty(name) {
   if (!project.value || !selectedPropId.value) return;
   const props = (project.value.scene_config.props || []).map((p) => {
     if (p.id !== selectedPropId.value) return p;
-    return { ...p, binding: { property: name || "" } };
+    const prev = p.binding || {};
+    const property = name || "";
+    return {
+      ...p,
+      binding: property
+        ? {
+            property,
+            warnMin: prev.warnMin,
+            warnMax: prev.warnMax,
+            alarmMin: prev.alarmMin,
+            alarmMax: prev.alarmMax,
+          }
+        : { property: "" },
+    };
   });
   patchSceneConfig({ props });
   queueAutoSave(0);
+  nextTick(() => {
+    syncDeviceStatusViz();
+    recomputeLamp();
+    syncDraftNumber();
+  });
+}
+
+function patchSelectedBinding(fields = {}) {
+  if (!project.value || !selectedPropId.value) return;
+  const props = (project.value.scene_config.props || []).map((p) => {
+    if (p.id !== selectedPropId.value) return p;
+    const prev = { ...(p.binding || {}) };
+    for (const [k, raw] of Object.entries(fields)) {
+      if (raw === "" || raw === null || raw === undefined) {
+        delete prev[k];
+      } else {
+        const n = Number(raw);
+        prev[k] = Number.isFinite(n) ? n : raw;
+      }
+    }
+    return { ...p, binding: prev };
+  });
+  patchSceneConfig({ props });
+  queueAutoSave(0);
+  nextTick(() => syncDeviceStatusViz());
+}
+
+function syncDraftNumber() {
+  const key = selectedBindingKey.value;
+  if (!key) {
+    draftNumberValue.value = "";
+    return;
+  }
+  const v = effectiveShadow.value[key];
+  draftNumberValue.value = v === undefined || v === null ? "" : String(v);
+}
+
+async function writeShadowProperty(name, value) {
+  const key = String(name || "").trim();
+  if (!key) return false;
+  controlBusy.value = true;
+  try {
+    const res = await api.setProperty(key, value);
+    if (res?.data && typeof res.data === "object") {
+      shadowProps.value = { ...shadowProps.value, ...res.data };
+    } else {
+      shadowProps.value = { ...shadowProps.value, [key]: value };
+    }
+    const next = { ...localShadowOverrides.value };
+    delete next[key];
+    localShadowOverrides.value = next;
+    shadowConnected.value = true;
+    setMsg(`已下发 ${key} = ${String(value)}`, "ok");
+    return true;
+  } catch (e) {
+    // 未连云端时仍可本地演示双向控制
+    localShadowOverrides.value = { ...localShadowOverrides.value, [key]: value };
+    shadowProps.value = { ...shadowProps.value, [key]: value };
+    setMsg(`本地演示写入 ${key}（云端：${e.message || "未连接"}）`, "ok");
+    return true;
+  } finally {
+    controlBusy.value = false;
+    syncDeviceStatusViz();
+    recomputeLamp();
+    syncDraftNumber();
+  }
+}
+
+async function toggleSelectedActuator() {
+  const key = selectedBindingKey.value;
+  if (!key) return;
+  const cur = effectiveShadow.value[key];
+  const next = !truthyOn(cur);
+  // 云端布尔；本地演示也可用 1/0
+  const payload = typeof cur === "boolean" || cur === true || cur === false ? next : next ? 1 : 0;
+  await writeShadowProperty(key, payload);
+}
+
+async function applySelectedNumber() {
+  const key = selectedBindingKey.value;
+  if (!key) return;
+  const n = Number(draftNumberValue.value);
+  if (!Number.isFinite(n)) {
+    setMsg("请输入有效数字", "err");
+    return;
+  }
+  await writeShadowProperty(key, n);
+}
+
+function onRealtimeMessage(msg) {
+  if (!msg || typeof msg !== "object") return;
+  if (msg.type === "props" || msg.type === "hello") {
+    if (msg.data && typeof msg.data === "object") {
+      shadowProps.value = { ...shadowProps.value, ...msg.data };
+      // 云端推送覆盖同名本地演示覆盖
+      const next = { ...localShadowOverrides.value };
+      for (const k of Object.keys(msg.data)) delete next[k];
+      localShadowOverrides.value = next;
+    }
+    if (msg.status) shadowConnected.value = !!msg.status.connected;
+    if (msg.type === "hello" && msg.status) shadowConnected.value = !!msg.status.connected;
+    syncDeviceStatusViz();
+    recomputeLamp();
+    syncDraftNumber();
+  } else if (msg.type === "status") {
+    shadowConnected.value = !!(msg.data?.connected ?? msg.status?.connected);
+    if (msg.props && typeof msg.props === "object") {
+      shadowProps.value = { ...shadowProps.value, ...msg.props };
+      syncDeviceStatusViz();
+      recomputeLamp();
+    }
+  }
 }
 
 async function refreshShadow() {
   try {
-    const [shadow, metrics] = await Promise.all([api.shadow(), api.metrics()]);
+    const [shadow, metrics, st] = await Promise.all([
+      api.shadow(),
+      api.metrics(),
+      api.status().catch(() => null),
+    ]);
     shadowProps.value = shadow.data || {};
-    metricOptions.value = (metrics.items || metrics.metrics || metrics || [])
-      .map((m) => m.property_name || m.name)
+    shadowConnected.value = !!(st?.connected ?? shadow.connected);
+    const items = metrics.items || metrics.metrics || metrics || [];
+    const meta = {};
+    metricOptions.value = items
+      .map((m) => {
+        const name = m.property_name || m.name;
+        if (name) {
+          meta[name] = {
+            writable: !!m.writable,
+            type: m.type || "number",
+            unit: m.unit || "",
+            label: m.name || name,
+          };
+        }
+        return name;
+      })
       .filter(Boolean);
+    metricMeta.value = meta;
     for (const k of Object.keys(effectiveShadow.value)) {
       if (!metricOptions.value.includes(k)) metricOptions.value.push(k);
     }
@@ -953,6 +1134,8 @@ async function refreshShadow() {
     /* ignore */
   }
   syncDeviceStatusViz();
+  recomputeLamp();
+  syncDraftNumber();
 }
 
 /** 静默自动保存（选择/改配置后立即落盘，无需点按钮） */
@@ -1017,7 +1200,10 @@ watch(
 );
 
 watch(selectedPropId, () => {
-  if (selectedPropId.value) refreshShadow();
+  if (selectedPropId.value) {
+    refreshShadow();
+    syncDraftNumber();
+  }
 });
 
 watch(bulldozeMode, (on) => {
@@ -1091,6 +1277,11 @@ onMounted(async () => {
   shadowTimer = setInterval(() => {
     refreshShadow().catch(() => {});
   }, 2500);
+  try {
+    realtimeWs = connectRealtime(onRealtimeMessage);
+  } catch {
+    realtimeWs = null;
+  }
 });
 
 async function onSelectProject(id) {
@@ -1128,6 +1319,12 @@ onUnmounted(() => {
   clearInterval(histTimer);
   clearInterval(shadowTimer);
   clearTimeout(autoSaveTimer);
+  try {
+    realtimeWs?.close?.();
+  } catch {
+    /* ignore */
+  }
+  realtimeWs = null;
 });
 </script>
 
@@ -1233,10 +1430,15 @@ onUnmounted(() => {
             <template v-else>演示模式 · 底部控制台切换工程 / 建造</template>
           </div>
 
-          <div v-if="selectedPlaced && buildMode" class="prop-inspector">
+          <div v-if="selectedPlaced" class="prop-inspector">
             <strong>{{ selectedPlaced.name }}</strong>
-            <span class="meta-text">{{ selectedPlaced.kind || selectedPlaced.source }}</span>
-            <div class="row-actions" style="margin-top: 6px; flex-wrap: wrap">
+            <span class="meta-text">
+              {{ selectedPlaced.kind || selectedPlaced.source }}
+              <template v-if="selectedPlaced.source === 'device'">
+                · {{ shadowConnected ? "云端已连" : "本地演示" }}
+              </template>
+            </span>
+            <div v-if="buildMode" class="row-actions" style="margin-top: 6px; flex-wrap: wrap">
               <button class="btn" type="button" @click="removeSelectedProp">删除</button>
             </div>
             <template v-if="selectedPlaced.source === 'device'">
@@ -1250,9 +1452,89 @@ onUnmounted(() => {
                   <option v-for="k in metricOptions" :key="k" :value="k">{{ k }}</option>
                 </select>
               </label>
-              <span v-if="selectedPlaced.binding?.property" class="bind-val">
-                当前值：{{ selectedBindingValue === null ? "—" : selectedBindingValue }}
-              </span>
+
+              <template v-if="selectedBindingKey">
+                <span class="bind-val">
+                  当前值：{{ selectedBindingValue === null ? "—" : selectedBindingValue }}
+                </span>
+
+                <!-- 双向控制 -->
+                <div class="bind-control">
+                  <button
+                    v-if="selectedIsSwitch"
+                    class="btn primary"
+                    type="button"
+                    :disabled="controlBusy"
+                    @click="toggleSelectedActuator"
+                  >
+                    {{ truthyOn(selectedBindingValue) ? "关闭" : "开启" }}
+                  </button>
+                  <template v-else>
+                    <input
+                      v-model="draftNumberValue"
+                      class="bind-num"
+                      type="number"
+                      step="any"
+                      :disabled="controlBusy"
+                      @keyup.enter="applySelectedNumber"
+                    />
+                    <button
+                      class="btn primary"
+                      type="button"
+                      :disabled="controlBusy"
+                      @click="applySelectedNumber"
+                    >
+                      下发
+                    </button>
+                  </template>
+                </div>
+
+                <!-- 告警阈值（数值型） -->
+                <div v-if="!selectedIsSwitch" class="bind-thresholds">
+                  <span class="meta-text">告警阈值</span>
+                  <div class="th-grid">
+                    <label>
+                      预警↓
+                      <input
+                        type="number"
+                        step="any"
+                        :value="selectedThresholds.warnMin"
+                        @change="patchSelectedBinding({ warnMin: $event.target.value })"
+                      />
+                    </label>
+                    <label>
+                      预警↑
+                      <input
+                        type="number"
+                        step="any"
+                        :value="selectedThresholds.warnMax"
+                        @change="patchSelectedBinding({ warnMax: $event.target.value })"
+                      />
+                    </label>
+                    <label>
+                      告警↓
+                      <input
+                        type="number"
+                        step="any"
+                        :value="selectedThresholds.alarmMin"
+                        @change="patchSelectedBinding({ alarmMin: $event.target.value })"
+                      />
+                    </label>
+                    <label>
+                      告警↑
+                      <input
+                        type="number"
+                        step="any"
+                        :value="selectedThresholds.alarmMax"
+                        @change="patchSelectedBinding({ alarmMax: $event.target.value })"
+                      />
+                    </label>
+                  </div>
+                </div>
+                <p v-if="selectedIsActuator" class="meta-text" style="margin: 4px 0 0">
+                  执行器属性会联动整机灯光 / 状态灯
+                </p>
+              </template>
             </template>
           </div>
 
@@ -2498,6 +2780,42 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--accent-deep);
   font-weight: 600;
+}
+.bind-control {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.bind-num {
+  flex: 1;
+  min-width: 72px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-solid);
+}
+.bind-thresholds {
+  display: grid;
+  gap: 6px;
+}
+.th-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.th-grid label {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.th-grid input {
+  width: 100%;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-solid);
 }
 @media (max-width: 900px) {
   .twin-page {

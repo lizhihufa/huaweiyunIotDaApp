@@ -12,12 +12,48 @@ export const STATUS_COLORS = {
   alarm: 0xef4444,
 };
 
-function truthyOn(v) {
+export function truthyOn(v) {
   return v === true || v === 1 || v === "1" || v === "true" || v === "on" || v === "ON";
 }
 
-function falsyOff(v) {
+export function falsyOff(v) {
   return v === false || v === 0 || v === "0" || v === "false" || v === "off" || v === "OFF";
+}
+
+/** 布尔型 / 开关型影子值 */
+export function isBooleanLike(v) {
+  return (
+    typeof v === "boolean" ||
+    v === 0 ||
+    v === 1 ||
+    v === "0" ||
+    v === "1" ||
+    v === "true" ||
+    v === "false" ||
+    v === "on" ||
+    v === "off" ||
+    v === "ON" ||
+    v === "OFF"
+  );
+}
+
+/** 执行器类属性：可驱动装配灯 / 泵阀视觉 */
+export function isActuatorProperty(key) {
+  const k = String(key || "").toLowerCase();
+  if (!k) return false;
+  return /lamp|relay|light|开关|灯|pump|水泵|valve|阀|fan|风扇|actuator/.test(k);
+}
+
+/** 任一已绑定执行器是否为开 */
+export function anyActuatorOn(props, shadow = {}) {
+  let hit = false;
+  for (const p of props || []) {
+    const key = String(p?.binding?.property || "").trim();
+    if (!key || !isActuatorProperty(key)) continue;
+    hit = true;
+    if (truthyOn(shadow[key])) return true;
+  }
+  return hit ? false : null; // null = 无执行器绑定
 }
 
 /**
