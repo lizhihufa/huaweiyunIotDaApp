@@ -99,6 +99,13 @@ export const api = {
     request(`/api/library/scenes/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteLibraryScene: (id) =>
     request(`/api/library/scenes/${id}`, { method: "DELETE" }),
+  librarySceneTypes: () => request("/api/library/scene-types"),
+  saveLibrarySceneType: (body) =>
+    request("/api/library/scene-types", { method: "POST", body: JSON.stringify(body) }),
+  updateLibrarySceneType: (id, body) =>
+    request(`/api/library/scene-types/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteLibrarySceneType: (id) =>
+    request(`/api/library/scene-types/${id}`, { method: "DELETE" }),
   uploadGlb: async (file) => {
     const fd = new FormData();
     fd.append("file", file);

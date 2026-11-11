@@ -110,7 +110,10 @@ async function removeItem(item) {
 
 function modelHint(item) {
   const m = item.model || {};
-  if (m.kind === "glb") return "GLB";
+  if (m.kind === "glb" || m.kind === "gltf") {
+    const name = String(m.url || "").split("/").pop() || "GLB";
+    return m.fit ? `精细 GLB · ${name} · fit ${m.fit}` : `精细 GLB · ${name}`;
+  }
   return m.id || "—";
 }
 
@@ -137,7 +140,7 @@ onMounted(async () => {
   </header>
 
   <p class="page-desc">
-    按天际线式分区管理可建造物体：住宅、大棚、商店、装饰（花草树）、马路（可铺路）。在「设备孪生」底部选板点击地面放置。
+    按分区管理可建造物体。内置已含若干 Kenney CC0 精细 GLB（住宅/树/路灯/沙发等）；也可上传自己的 .glb。在「设备孪生」编辑模式选板放置。
   </p>
   <div v-if="msg" class="msg" :class="msgType">{{ msg }}</div>
 

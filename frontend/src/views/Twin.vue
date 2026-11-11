@@ -23,13 +23,46 @@ import {
   mergeDemoShadow,
   truthyOn,
 } from "../twin/deviceStatus";
+import { resolveIndoorPlace } from "../twin/indoorSnap";
 import { PLACE_CATEGORIES, SCENE_KIND_LABEL, resolveSnap } from "../twin/placeCatalog";
 import { autotileRoadProps, isRoadNetworkProp } from "../twin/roadAutotile";
-import { SCENE_TEMPLATES } from "../twin/sceneTemplates";
+import { autotileUtilityProps, isUtilityKind } from "../twin/utilityNetwork";
 import {
+  addWaterLink,
+  addWireLink,
+  annotateWaterLinksConnectivity,
+  annotateWireLinksConnectivity,
+  deviceControlRole,
+  devicesCircuitConnected,
+  devicesWaterConnected,
+  getSensorControlRule,
+  isWaterControlProp,
+  linkableControlTargets,
+  linkableWaterTargets,
+  listWaterLinks,
+  listWireLinks,
+  removeWaterLink,
+  removeWireLink,
+  resolveLinkedWritesCascade,
+  resolveWaterLinkedWritesCascade,
+} from "../twin/wireLinks";
+import {
+  DATA_SOURCE_CLOUD,
+  DATA_SOURCE_LINEAR,
+  DEFAULT_LINEAR_CHANNELS,
+  isLinearDataSource,
+  normalizeLinearChannels,
+  sampleLinearShadow,
+} from "../twin/linearData";
+import {
+  SCENE_TYPE_BASES,
   SCENE_TYPES,
   getSceneType,
+  listSceneTypes,
+  resolveEnvId,
+  resolveSceneTypeRef,
   sceneTypeFromTemplate,
+  setCustomSceneTypeCache,
 } from "../twin/sceneTypes";
 import { flowSteps, hourLabel, luxFromHour, nextLampState } from "../twin/simulate";
 import { useTwinViewer } from "../twin/useTwinViewer";
@@ -48,6 +81,17 @@ const autoDemo = ref(false);
 const history = ref([]); // {t, lux, on}
 const sceneLibrary = ref([]);
 const deviceLibrary = ref([]);
+const customSceneTypes = ref([]);
+const showSceneTypeForm = ref(false);
+const sceneTypeBusy = ref(false);
+const sceneTypeForm = reactive({
+  id: "",
+  name: "",
+  desc: "",
+  base: "blank",
+  bg: "#e8eee9",
+  editing: false,
+});
 const placeCategory = ref("road");
 const placeBrushId = ref("");
 const shadowProps = ref({});
@@ -61,8 +105,15 @@ const draftNumberValue = ref("");
 const buildHist = createBuildHistory();
 const canUndo = ref(false);
 const canRedo = ref(false);
-const paintBatch = ref(null); // 拖拽铺路期间暂存
-const templates = SCENE_TEMPLATES;
+const paintBatch = ref(null); // 拖拽铺路/管网期间暂存
+let paintRefreshTimer = null;
+let paintRefreshDirty = false;
+const tourBusy = ref(false);
+let tourToken = 0;
+
+function isPaintNetworkKind(kind) {
+  return kind === "road" || isUtilityKind(kind);
+}
 
 const viewer = useTwinViewer();
 const placeBrush = viewer.placeBrush;
@@ -83,17 +134,22 @@ const placeCats = PLACE_CATEGORIES;
 /** 底部控制台主工具（天际线式） */
 const CONSOLE_TOOLS = [
   { id: "road", label: "路面", icon: "路", cat: "road" },
-  { id: "circuit", label: "电路", icon: "电", cat: "device" },
-  { id: "water", label: "水", icon: "水", cat: "greenhouse" },
+  { id: "device", label: "设备", icon: "设", cat: "device" },
+  { id: "circuit", label: "电路", icon: "电", cat: "circuit" },
+  { id: "water", label: "水", icon: "水", cat: "water" },
   { id: "green", label: "绿化", icon: "绿", cat: "decoration" },
   { id: "bulldoze", label: "推土机", icon: "拆", action: "bulldoze" },
 ];
+const linkTargetDraft = ref("");
 const annCount = computed(() => countAnnotations(project.value?.annotations || {}));
-const sceneTypes = SCENE_TYPES;
-const currentSceneId = computed(() =>
-  sceneTypeFromTemplate(project.value?.template || project.value?.scene_type || "street")
-);
-const currentScene = computed(() => getSceneType(currentSceneId.value));
+const sceneTypes = computed(() => listSceneTypes(customSceneTypes.value));
+const builtinSceneTypes = SCENE_TYPES;
+const currentSceneId = computed(() => {
+  const raw = project.value?.scene_type || project.value?.template || "street";
+  return resolveSceneTypeRef(raw, customSceneTypes.value).id;
+});
+const currentScene = computed(() => getSceneType(currentSceneId.value, customSceneTypes.value));
+const currentEnvId = computed(() => resolveEnvId(currentScene.value, customSceneTypes.value));
 const sceneCfg = computed(() => project.value?.scene_config || {});
 const cropOptions = CROP_OPTIONS;
 const farmCropOptions = FARM_CROP_OPTIONS;
@@ -106,12 +162,15 @@ const roomSummary = computed(() => {
   return c.has_basement ? `${base} · 有地下室` : base;
 });
 const actuatorLabel = computed(() => {
-  const id = currentSceneId.value;
+  const id = currentEnvId.value;
   if (id === "room") return lampOn.value ? "灯已点亮" : "灯已熄灭";
   if (id === "greenhouse" || id === "farm") return lampOn.value ? "执行器已动作" : "执行器待机";
   if (id === "rice_paddy") return lampOn.value ? "闸泵联动中" : "闸泵待机";
   return lampOn.value ? "路灯已点亮" : "路灯已熄灭";
 });
+const sceneTypeBaseOptions = computed(() =>
+  builtinSceneTypes.map((s) => ({ id: s.id, label: s.label }))
+);
 
 const rules = reactive({
   threshold_lx: 80,
@@ -119,10 +178,21 @@ const rules = reactive({
   mode: "auto",
   manual_lamp_on: false,
   sim_hour: 16.9,
+  /** 数据源：cloud=华为云影子；linear=指定线性随机模拟 */
+  data_source: DATA_SOURCE_CLOUD,
+  linear_interval_ms: 800,
+  linear_channels: DEFAULT_LINEAR_CHANNELS.map((c) => ({ ...c })),
 });
 
 const lux = computed(() => luxFromHour(rules.sim_hour));
 const lampOn = ref(false);
+const linearShadow = ref({});
+const linearElapsedSec = ref(0);
+let linearTimer = null;
+let linearStartedAt = 0;
+
+const usingLinearData = computed(() => isLinearDataSource(rules.data_source));
+const linearChannels = computed(() => normalizeLinearChannels(rules.linear_channels));
 
 const selectedPlaced = computed(() => {
   const id = selectedPropId.value;
@@ -137,15 +207,21 @@ const selectedBindingValue = computed(() => {
   return v === undefined ? null : v;
 });
 
-/** 云端影子 + 本地演示量 + 本地覆盖（写属性优先） */
-const effectiveShadow = computed(() => ({
-  ...mergeDemoShadow(shadowProps.value, {
-    lux: lux.value,
-    lampOn: lampOn.value,
-    simHour: rules.sim_hour,
-  }),
-  ...localShadowOverrides.value,
-}));
+/** 云端影子 / 线性模拟 + 本地演示量 + 本地覆盖（写属性优先） */
+const effectiveShadow = computed(() => {
+  const base = usingLinearData.value
+    ? { ...linearShadow.value }
+    : mergeDemoShadow(shadowProps.value, {
+        lux: lux.value,
+        lampOn: lampOn.value,
+        simHour: rules.sim_hour,
+      });
+  return { ...base, ...localShadowOverrides.value };
+});
+
+const dataSourceLabel = computed(() =>
+  usingLinearData.value ? "线性模拟" : shadowConnected.value ? "华为云影子" : "华为云（未连）"
+);
 
 const selectedBindingKey = computed(() =>
   String(selectedPlaced.value?.binding?.property || "").trim()
@@ -153,12 +229,18 @@ const selectedBindingKey = computed(() =>
 
 const selectedIsActuator = computed(() => isActuatorProperty(selectedBindingKey.value));
 
+const selectedDeviceRole = computed(() => deviceControlRole(selectedPlaced.value));
+
 const selectedIsSwitch = computed(() => {
+  if (selectedDeviceRole.value === "switch") return true;
+  if (selectedDeviceRole.value === "sensor") return false;
   if (!selectedBindingKey.value) return false;
   const v = effectiveShadow.value[selectedBindingKey.value];
   if (v === undefined || v === null) return selectedIsActuator.value;
   return isBooleanLike(v) || selectedIsActuator.value;
 });
+
+const selectedIsSensor = computed(() => selectedDeviceRole.value === "sensor");
 
 const selectedThresholds = computed(() => {
   const b = selectedPlaced.value?.binding || {};
@@ -167,8 +249,79 @@ const selectedThresholds = computed(() => {
     warnMax: b.warnMax ?? "",
     alarmMin: b.alarmMin ?? "",
     alarmMax: b.alarmMax ?? "",
+    controlThreshold: b.controlThreshold ?? "",
+    controlWhen: b.controlWhen === "below" ? "below" : "above",
+    controlHysteresis: b.controlHysteresis ?? "",
   };
 });
+
+const selectedSensorControl = computed(() => getSensorControlRule(selectedPlaced.value));
+
+const selectedIsWaterDevice = computed(() => isWaterControlProp(selectedPlaced.value));
+
+const wireLinks = computed(() => listWireLinks(sceneCfg.value));
+const waterLinks = computed(() => listWaterLinks(sceneCfg.value));
+
+const annotatedWireLinks = computed(() =>
+  annotateWireLinksConnectivity(project.value?.scene_config?.props || [], wireLinks.value)
+);
+const annotatedWaterLinks = computed(() =>
+  annotateWaterLinksConnectivity(project.value?.scene_config?.props || [], waterLinks.value)
+);
+
+const selectedOutgoingLinks = computed(() => {
+  const id = selectedPropId.value;
+  if (!id) return [];
+  const props = project.value?.scene_config?.props || [];
+  const byId = Object.fromEntries(props.map((p) => [p.id, p]));
+  return annotatedWireLinks.value
+    .filter((l) => l.from === id)
+    .map((l) => ({
+      ...l,
+      toName: byId[l.to]?.name || l.to,
+      toProperty: byId[l.to]?.binding?.property || "",
+    }));
+});
+
+const selectedOutgoingWaterLinks = computed(() => {
+  const id = selectedPropId.value;
+  if (!id) return [];
+  const props = project.value?.scene_config?.props || [];
+  const byId = Object.fromEntries(props.map((p) => [p.id, p]));
+  return annotatedWaterLinks.value
+    .filter((l) => l.from === id)
+    .map((l) => ({
+      ...l,
+      toName: byId[l.to]?.name || l.to,
+      toProperty: byId[l.to]?.binding?.property || "",
+    }));
+});
+
+/** 电线下游可选目标（按角色：开关→模块；传感器→开关/模块） */
+const linkableActuators = computed(() => {
+  const from = selectedPlaced.value;
+  const linked = new Set(selectedOutgoingLinks.value.map((l) => l.to));
+  return linkableControlTargets(project.value?.scene_config?.props || [], from).filter(
+    (p) => !linked.has(p.id)
+  );
+});
+
+const linkableWaterDevices = computed(() => {
+  const from = selectedPlaced.value;
+  const linked = new Set(selectedOutgoingWaterLinks.value.map((l) => l.to));
+  return linkableWaterTargets(project.value?.scene_config?.props || [], from).filter(
+    (p) => !linked.has(p.id)
+  );
+});
+
+const wireLinkHint = computed(() => {
+  const role = selectedDeviceRole.value;
+  if (role === "switch") return "电线连接（开关 → 直接控制模块，可多级连带）";
+  if (role === "sensor") return "电线连接（传感器 → 阈值控制开关/模块，可多级连带）";
+  return "电线连接（→ 下游模块）";
+});
+
+const waterLinkDraft = ref("");
 
 const deviceStatuses = computed(() =>
   collectDeviceStatuses(project.value?.scene_config?.props || [], effectiveShadow.value)
@@ -240,27 +393,40 @@ function ensureAnnotations(item) {
     side: Array.isArray(ann.side) ? ann.side : [],
     top: Array.isArray(ann.top) ? ann.top : [],
   };
+  const rawType = item.scene_type || item.template || "street";
+  const resolved = resolveSceneTypeRef(rawType, customSceneTypes.value);
+  if (resolved.missing) {
+    item._sceneTypeMissing = resolved.fallbackFrom;
+    item.scene_type = resolved.id;
+    item.template = getSceneType(resolved.id, customSceneTypes.value).template;
+  } else {
+    item._sceneTypeMissing = "";
+    item.scene_type = resolved.id;
+  }
+  const scene = getSceneType(resolved.id, customSceneTypes.value);
+  const envId = resolveEnvId(scene, customSceneTypes.value);
   if (!Array.isArray(item.parts) || !item.parts.length) {
-    const scene = getSceneType(sceneTypeFromTemplate(item.template || item.scene_type));
     item.parts = (scene.parts || BUILTIN_PARTS).map((p) => ({ ...p }));
   } else {
     item.parts = mergePartOptions(item.parts);
   }
-  if (!item.scene_type) {
-    item.scene_type = sceneTypeFromTemplate(item.template);
+  if (!item.template) {
+    item.template = scene.template;
   }
-  const st = item.scene_type || sceneTypeFromTemplate(item.template);
-  item.scene_config = mergeSceneConfig(st, item.scene_config || {});
+  item.scene_config = mergeSceneConfig(envId, item.scene_config || {});
   if (!item.assembly_model) {
     item.assembly_model =
-      st === "street"
+      envId === "street"
         ? { kind: "builtin", id: "street_light" }
         : { kind: "builtin", id: null };
   }
   if (!Array.isArray(item.scene_config.props)) {
     item.scene_config.props = item.scene_config.props || [];
   }
-  item.scene_config.props = autotileRoadProps(item.scene_config.props, 2);
+  item.scene_config.props = autotileUtilityProps(
+    autotileRoadProps(item.scene_config.props, 2),
+    1
+  );
   return item;
 }
 
@@ -281,6 +447,19 @@ function persistCamera() {
   project.value.scene_config = { ...sc, camera: cam, layers: { ...layerState } };
 }
 
+async function loadCustomSceneTypes() {
+  try {
+    const res = await api.librarySceneTypes();
+    customSceneTypes.value = res.items || [];
+    setCustomSceneTypeCache(customSceneTypes.value);
+    viewer.setCustomSceneTypes(customSceneTypes.value);
+  } catch {
+    customSceneTypes.value = [];
+    setCustomSceneTypeCache([]);
+    viewer.setCustomSceneTypes([]);
+  }
+}
+
 async function loadProject(id = "street_light") {
   // 切工程前记下当前镜头
   persistCamera();
@@ -289,10 +468,23 @@ async function loadProject(id = "street_light") {
     const res = await api.getTwin(id);
     project.value = ensureAnnotations(res.item);
     Object.assign(rules, res.item.rules || {});
+    if (!rules.data_source) rules.data_source = DATA_SOURCE_CLOUD;
+    rules.linear_channels = normalizeLinearChannels(rules.linear_channels);
+    if (!Number.isFinite(Number(rules.linear_interval_ms))) rules.linear_interval_ms = 800;
     await mountScene();
+    if (usingLinearData.value) startLinearData();
+    else stopLinearData();
     recomputeLamp();
     syncDeviceStatusViz();
-    setMsg(`已加载工程「${res.item.name}」`, "ok");
+    if (project.value._sceneTypeMissing) {
+      setMsg(
+        `自定义场景类型「${project.value._sceneTypeMissing}」已不存在，已降级为「${currentScene.value.label}」`,
+        "err"
+      );
+      voidAutoSave(0);
+    } else {
+      setMsg(`已加载工程「${res.item.name}」`, "ok");
+    }
   } catch (e) {
     setMsg(e.message, "err");
   } finally {
@@ -303,12 +495,14 @@ async function loadProject(id = "street_light") {
 async function mountScene() {
   await nextTick();
   if (!canvasRef.value || !project.value) return;
-  const sceneType = sceneTypeFromTemplate(project.value.template || project.value.scene_type);
+  const sceneType = currentSceneId.value;
+  const envId = currentEnvId.value;
+  viewer.setCustomSceneTypes(customSceneTypes.value);
   viewer.init(canvasRef.value, {
     views: project.value.views,
     annotations: project.value.annotations,
     sceneType,
-    sceneConfig: project.value.scene_config || defaultSceneConfig(sceneType),
+    sceneConfig: project.value.scene_config || defaultSceneConfig(envId),
   });
   await viewer.applyAnnotations(
     project.value.annotations,
@@ -324,21 +518,31 @@ async function mountScene() {
       if (k in layerState) viewer.setLayerVisible(k, !!v);
     }
   }
+  // 设备 / 绿化图层强制开启，避免旧工程 layers 关闭导致放置不可见
+  viewer.setLayerVisible("device", true);
+  viewer.setLayerVisible("decoration", true);
+  viewer.setLayerVisible("road", true);
+  viewer.setLayerVisible("building", true);
+  viewer.setLayerVisible("water", true);
   const cam = project.value.scene_config?.camera;
   if (cam) {
     nextTick(() => viewer.restoreCameraState(cam));
-  } else if (sceneType === "room") {
+  } else if (envId === "room") {
     nextTick(() => focusRoomSpace("overview"));
   }
+  viewer.setCircuitVisible(false);
+  refreshWireLinkLines();
 }
 
 function applySceneType(sceneId, { replaceParts = true } = {}) {
   if (!project.value) return;
-  const meta = getSceneType(sceneId);
+  const meta = getSceneType(sceneId, customSceneTypes.value);
+  const envId = resolveEnvId(meta, customSceneTypes.value);
   project.value.template = meta.template;
   project.value.scene_type = meta.id;
-  project.value.scene_config = defaultSceneConfig(meta.id);
-  if (meta.id === "street" && !project.value.assembly_model?.url) {
+  project.value._sceneTypeMissing = "";
+  project.value.scene_config = defaultSceneConfig(envId);
+  if (envId === "street" && !project.value.assembly_model?.url) {
     project.value.assembly_model = { kind: "builtin", id: "street_light" };
   }
   if (replaceParts) {
@@ -368,14 +572,110 @@ function applySceneType(sceneId, { replaceParts = true } = {}) {
   }
   recomputeLamp();
   nextTick(() => {
-    if (meta.id === "room") {
+    if (envId === "room") {
       focusRoomSpace("overview");
     } else {
       viewer.setCameraPreset("orbit");
     }
   });
   setMsg(`已切换场景「${meta.label}」并自动保存`, "ok");
-  queueAutoSave();
+  voidAutoSave();
+}
+
+function resetSceneTypeForm() {
+  sceneTypeForm.id = "";
+  sceneTypeForm.name = "";
+  sceneTypeForm.desc = "";
+  sceneTypeForm.base = "blank";
+  sceneTypeForm.bg = "#e8eee9";
+  sceneTypeForm.editing = false;
+  showSceneTypeForm.value = false;
+}
+
+function openCreateSceneType() {
+  resetSceneTypeForm();
+  showSceneTypeForm.value = true;
+  const baseMeta = getSceneType(sceneTypeForm.base);
+  sceneTypeForm.bg = "#" + (baseMeta.bg >>> 0).toString(16).padStart(6, "0");
+}
+
+function openEditSceneType(meta) {
+  if (!meta || meta.builtin) return;
+  sceneTypeForm.editing = true;
+  sceneTypeForm.id = meta.id;
+  sceneTypeForm.name = meta.label;
+  sceneTypeForm.desc = meta.desc || "";
+  sceneTypeForm.base = meta.base || "blank";
+  sceneTypeForm.bg =
+    typeof meta.bg === "number"
+      ? "#" + (meta.bg >>> 0).toString(16).padStart(6, "0")
+      : String(meta.bg || "#e8eee9");
+  showSceneTypeForm.value = true;
+}
+
+function onSceneTypeBaseChange() {
+  if (sceneTypeForm.editing) return;
+  const baseMeta = getSceneType(sceneTypeForm.base);
+  sceneTypeForm.bg = "#" + (baseMeta.bg >>> 0).toString(16).padStart(6, "0");
+}
+
+async function saveSceneTypeForm() {
+  const name = sceneTypeForm.name.trim();
+  if (!name) {
+    setMsg("请填写场景类型名称", "err");
+    return;
+  }
+  const editing = sceneTypeForm.editing;
+  const editId = sceneTypeForm.id;
+  const base = SCENE_TYPE_BASES.includes(sceneTypeForm.base)
+    ? sceneTypeForm.base
+    : "blank";
+  const baseMeta = getSceneType(base);
+  const body = {
+    id: editing ? editId : undefined,
+    name,
+    desc: sceneTypeForm.desc.trim(),
+    base,
+    bg: sceneTypeForm.bg || undefined,
+    parts: (baseMeta.parts || []).map((p) => ({ ...p })),
+  };
+  sceneTypeBusy.value = true;
+  try {
+    let saved;
+    if (editing) {
+      saved = await api.updateLibrarySceneType(editId, body);
+    } else {
+      saved = await api.saveLibrarySceneType(body);
+    }
+    await loadCustomSceneTypes();
+    const savedId = saved?.item?.id || editId;
+    resetSceneTypeForm();
+    setMsg(editing ? "场景类型已更新" : "场景类型已创建", "ok");
+    if (savedId) applySceneType(savedId);
+  } catch (e) {
+    setMsg(e.message || "保存失败", "err");
+  } finally {
+    sceneTypeBusy.value = false;
+  }
+}
+
+async function removeCustomSceneType(meta) {
+  if (!meta || meta.builtin) return;
+  if (!window.confirm(`删除自定义场景类型「${meta.label}」？引用它的工程将降级到空地。`)) {
+    return;
+  }
+  sceneTypeBusy.value = true;
+  try {
+    await api.deleteLibrarySceneType(meta.id);
+    const wasActive = currentSceneId.value === meta.id;
+    await loadCustomSceneTypes();
+    if (wasActive) applySceneType("blank");
+    setMsg(`已删除「${meta.label}」`, "ok");
+  } catch (e) {
+    setMsg(e.message || "删除失败", "err");
+  } finally {
+    sceneTypeBusy.value = false;
+  }
 }
 
 function focusRoomSpace(id) {
@@ -387,13 +687,20 @@ function focusRoomSpace(id) {
 
 function patchSceneConfig(patch) {
   if (!project.value) return;
-  const st = currentSceneId.value;
+  const st = currentEnvId.value;
   project.value.scene_config = mergeSceneConfig(st, {
     ...(project.value.scene_config || {}),
     ...patch,
   });
-  viewer.setSceneConfig(project.value.scene_config, { resetParts: false });
-  queueAutoSave();
+  // 仅改 props / 连线时不要重建整套环境（会导致放置物闪没或竞态）
+  const keys = Object.keys(patch || {});
+  const propsOnly =
+    keys.length > 0 &&
+    keys.every((k) => k === "props" || k === "wire_links" || k === "water_links");
+  if (!propsOnly) {
+    viewer.setSceneConfig(project.value.scene_config, { resetParts: false });
+  }
+  voidAutoSave();
 }
 
 function recomputeLamp() {
@@ -434,6 +741,114 @@ function toggleDemo() {
   }, 120);
 }
 
+function persistLinearChannels() {
+  rules.linear_channels = normalizeLinearChannels(rules.linear_channels);
+}
+
+function tickLinearData() {
+  if (!usingLinearData.value) return;
+  if (!linearStartedAt) linearStartedAt = performance.now();
+  linearElapsedSec.value = (performance.now() - linearStartedAt) / 1000;
+  // 先清掉「已被线性通道覆盖」的手动覆盖，避免关掉线性源后残留；
+  // 但保留不在通道列表里的键（例如联动写入的执行器）。
+  const sample = sampleLinearShadow(rules.linear_channels, linearElapsedSec.value);
+  const channelKeys = new Set(Object.keys(sample));
+  if (Object.keys(localShadowOverrides.value).length) {
+    const next = { ...localShadowOverrides.value };
+    for (const k of channelKeys) delete next[k];
+    localShadowOverrides.value = next;
+  }
+  linearShadow.value = sample;
+  syncDeviceStatusViz();
+  recomputeLamp();
+  syncDraftNumber();
+  void evalSensorWireLinks([...channelKeys]);
+}
+
+function stopLinearData() {
+  clearInterval(linearTimer);
+  linearTimer = null;
+}
+
+function startLinearData() {
+  stopLinearData();
+  if (!usingLinearData.value) return;
+  persistLinearChannels();
+  linearStartedAt = performance.now();
+  tickLinearData();
+  const ms = Math.max(200, Number(rules.linear_interval_ms) || 800);
+  linearTimer = setInterval(tickLinearData, ms);
+}
+
+function setDataSource(source) {
+  const next = isLinearDataSource(source) ? DATA_SOURCE_LINEAR : DATA_SOURCE_CLOUD;
+  rules.data_source = next;
+  localShadowOverrides.value = {};
+  if (next === DATA_SOURCE_LINEAR) {
+    if (!Array.isArray(rules.linear_channels) || !rules.linear_channels.length) {
+      rules.linear_channels = DEFAULT_LINEAR_CHANNELS.map((c) => ({ ...c }));
+    }
+    persistLinearChannels();
+    startLinearData();
+    setMsg("已切换为线性模拟数据（不读华为云）", "ok");
+  } else {
+    stopLinearData();
+    refreshShadow().catch(() => {});
+    setMsg("已切换为华为云影子数据", "ok");
+  }
+  queueAutoSave(0);
+}
+
+function addLinearChannel() {
+  const used = new Set(linearChannels.value.map((c) => c.property));
+  const hint =
+    metricOptions.value.find((k) => !used.has(k)) ||
+    `metric_${linearChannels.value.length + 1}`;
+  rules.linear_channels = [
+    ...linearChannels.value,
+    {
+      property: hint,
+      min: 0,
+      max: 100,
+      periodSec: 40,
+      noise: 1,
+      decimals: 1,
+      boolean: false,
+    },
+  ];
+  persistLinearChannels();
+  if (usingLinearData.value) startLinearData();
+  queueAutoSave(0);
+}
+
+function removeLinearChannel(idx) {
+  const list = [...linearChannels.value];
+  list.splice(idx, 1);
+  rules.linear_channels = list.length
+    ? list
+    : DEFAULT_LINEAR_CHANNELS.map((c) => ({ ...c }));
+  persistLinearChannels();
+  if (usingLinearData.value) startLinearData();
+  queueAutoSave(0);
+}
+
+function patchLinearChannel(idx, fields) {
+  const list = linearChannels.value.map((c, i) =>
+    i === idx ? { ...c, ...fields } : { ...c }
+  );
+  rules.linear_channels = normalizeLinearChannels(list);
+  if (usingLinearData.value) tickLinearData();
+  queueAutoSave(400);
+}
+
+function resetLinearChannels() {
+  rules.linear_channels = DEFAULT_LINEAR_CHANNELS.map((c) => ({ ...c }));
+  persistLinearChannels();
+  if (usingLinearData.value) startLinearData();
+  setMsg("已恢复默认线性通道", "ok");
+  queueAutoSave(0);
+}
+
 let autoSaveTimer = null;
 let saving = false;
 
@@ -442,7 +857,9 @@ function buildSaveBody() {
   return {
     name: project.value.name,
     template: project.value.template,
-    scene_type: project.value.scene_type || sceneTypeFromTemplate(project.value.template),
+    scene_type:
+      project.value.scene_type ||
+      sceneTypeFromTemplate(project.value.template, customSceneTypes.value),
     scene_config: project.value.scene_config || {},
     views: project.value.views,
     parts: project.value.parts,
@@ -504,6 +921,14 @@ const placeGridSize = computed(() =>
   Math.max(0.5, Number(sceneCfg.value?.grid_size) || 2)
 );
 
+/** 直道/路口等由自动拼装生成，面板只留一块「马路砖」 */
+const MERGED_ROAD_VARIANTS = new Set([
+  "road_straight",
+  "road_cross",
+  "road_t",
+  "road_curve",
+]);
+
 const placePaletteItems = computed(() => {
   const cat = placeCats.find((c) => c.id === placeCategory.value) || placeCats[0];
   const gs = placeGridSize.value;
@@ -520,15 +945,29 @@ const placePaletteItems = computed(() => {
   }
   return sceneLibrary.value
     .filter((s) => s.kind === cat.id)
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      kind: s.kind,
-      model: s.model,
-      snap: resolveSnap({ kind: s.kind, source: "scene", snap: s.snap }, gs),
-      source: "scene",
-      badge: SCENE_KIND_LABEL[s.kind] || s.kind,
-    }));
+    .filter((s) => !(s.kind === "road" && MERGED_ROAD_VARIANTS.has(s.id)))
+    .map((s) => {
+      const isGlb = s.model?.kind === "glb" || s.model?.kind === "gltf";
+      const name =
+        s.id === "road_tile" || s.model?.id === "road_tile"
+          ? "马路砖（点到点 / 自动成型）"
+          : s.id === "util_circuit" || s.model?.id === "util_circuit"
+            ? "电路（点到点 / 自动接管）"
+            : s.id === "util_water" || s.model?.id === "util_water"
+              ? "水管（点到点 / 自动接管）"
+              : s.name;
+      return {
+        id: s.id,
+        name,
+        kind: s.kind,
+        model: s.model,
+        snap: resolveSnap({ kind: s.kind, source: "scene", snap: s.snap }, gs),
+        source: "scene",
+        badge: isGlb
+          ? `精细 · ${SCENE_KIND_LABEL[s.kind] || s.kind}`
+          : SCENE_KIND_LABEL[s.kind] || s.kind,
+      };
+    });
 });
 
 function pickPlaceBrush(item) {
@@ -572,11 +1011,37 @@ async function refreshPropsOnly() {
   await viewer.applyScenePropList(project.value.scene_config?.props || []);
   viewer.setDayNight(rules.sim_hour, lampOn.value);
   syncDeviceStatusViz();
+  syncCircuitVisibility();
 }
 
 function finalizeProps(nextProps) {
   const snap = placeGridSize.value || 2;
-  return autotileRoadProps(nextProps, snap);
+  const withRoads = autotileRoadProps(nextProps, snap);
+  return autotileUtilityProps(withRoads, 1);
+}
+
+function clearPaintRefreshTimer() {
+  if (paintRefreshTimer) {
+    clearTimeout(paintRefreshTimer);
+    paintRefreshTimer = null;
+  }
+  paintRefreshDirty = false;
+}
+
+/** 铺设拖拽中节流重建，松手再完整刷一次 */
+function schedulePaintRefresh() {
+  paintRefreshDirty = true;
+  if (paintRefreshTimer) return;
+  paintRefreshTimer = setTimeout(async () => {
+    paintRefreshTimer = null;
+    if (!paintRefreshDirty || !project.value) return;
+    paintRefreshDirty = false;
+    const props = project.value.scene_config?.props || [];
+    await viewer.applyScenePropList(props);
+    viewer.setDayNight(rules.sim_hour, lampOn.value);
+    syncDeviceStatusViz();
+    if (paintRefreshDirty) schedulePaintRefresh();
+  }, 140);
 }
 
 async function commitProps(nextProps, { history = true, msgText } = {}) {
@@ -588,74 +1053,143 @@ async function commitProps(nextProps, { history = true, msgText } = {}) {
   if (msgText) setMsg(msgText, "ok");
 }
 
-function makePropItem(brush, x, y, z) {
+function makePropItem(brush, x, y, z, rotY = 0) {
   // 室内设备用更细吸附，便于摆桌面/墙边
   const indoorDevice =
-    currentSceneId.value === "room" && (brush.source === "device" || brush.kind === "device");
-  const snap = indoorDevice ? 0.5 : resolveSnap(brush, placeGridSize.value);
+    currentEnvId.value === "room" && (brush.source === "device" || brush.kind === "device");
+  const snap = indoorDevice
+    ? 0.5
+    : isUtilityKind(brush.kind)
+      ? 1
+      : resolveSnap(brush, placeGridSize.value);
+  const lift =
+    brush.source === "device" ? 0.02 : brush.kind === "decoration" ? 0.01 : y || 0;
+  const model =
+    brush.model && (brush.model.kind || brush.model.url || brush.model.id)
+      ? { ...brush.model }
+      : { kind: "builtin", id: brush.assetId };
   return {
     id: `${brush.assetId}_${Date.now().toString(36).slice(-5)}_${Math.random().toString(36).slice(2, 5)}`,
     asset_id: brush.assetId,
     name: brush.name,
-    model: brush.model,
+    model,
     source: brush.source,
     kind: brush.kind,
     x,
-    y: y || 0,
+    y: lift,
     z,
     snap,
-    scale: brush.source === "device" ? 1.2 : 1,
-    rotY: 0,
+    scale: brush.source === "device" ? 1.6 : brush.kind === "decoration" ? 1.15 : 1,
+    rotY: rotY || 0,
     binding: brush.source === "device" ? { property: "" } : undefined,
   };
 }
 
 async function placeAtPoint({ x, y, z, brush, paint }) {
   if (!project.value || !brush) return;
+  let px = x;
+  let py = y || 0;
+  let pz = z;
+  let rotY = 0;
+
+  // 室内设备：桌面 / 靠墙吸附
+  if (
+    currentEnvId.value === "room" &&
+    (brush.source === "device" || brush.kind === "device") &&
+    !paint
+  ) {
+    const indoor = resolveIndoorPlace(px, pz);
+    if (indoor) {
+      px = indoor.x;
+      py = indoor.y;
+      pz = indoor.z;
+      rotY = indoor.rotY || 0;
+      setMsg(`已吸附到「${indoor.surface}」`, "ok");
+    }
+  }
+
   const props = [...(project.value.scene_config.props || [])];
 
-  if (brush.kind === "road" && brush.snap) {
+  if (isPaintNetworkKind(brush.kind)) {
     const idx = props.findIndex(
-      (p) => p.kind === "road" && Math.abs(p.x - x) < 0.01 && Math.abs(p.z - z) < 0.01
+      (p) =>
+        p.kind === brush.kind &&
+        Math.abs(p.x - px) < 0.01 &&
+        Math.abs(p.z - pz) < 0.01
     );
     if (idx >= 0) props.splice(idx, 1);
   } else {
-    const hit = findCollision(props, { x, z, kind: brush.kind, source: brush.source });
+    const hit = findCollision(props, { x: px, z: pz, kind: brush.kind, source: brush.source });
     if (hit) {
       setMsg(`与「${hit.name}」重叠，无法放置`, "err");
       return;
     }
   }
 
-  const item = makePropItem(brush, x, y, z);
+  const item = makePropItem(brush, px, py, pz, rotY);
   props.push(item);
   const next = finalizeProps(props);
 
-  // 拖拽铺路：合并撤销；重建走串行队列，避免马路几何被 dispose 掉
-  if (paint && brush.kind === "road") {
+  // 拖拽铺路/管网：合并撤销；重建节流，松手再完整刷新
+  if (paint && isPaintNetworkKind(brush.kind)) {
     if (!paintBatch.value) {
       pushHistBeforeChange();
-      paintBatch.value = true;
+      paintBatch.value = brush.kind;
     }
     patchSceneConfig({ props: next });
-    viewer.applyScenePropList(next);
+    schedulePaintRefresh();
     return;
   }
 
   const label =
     brush.kind === "road" && isRoadNetworkProp(item)
       ? "马路（按铺设方向自动接道）"
-      : brush.name;
+      : isUtilityKind(brush.kind)
+        ? `${brush.name}（自动接管）`
+        : brush.name;
   await commitProps(next, { history: true, msgText: `已放置「${label}」` });
+  // 选中刚放置的物体，确认已进场景
+  viewer.selectProp(item.id);
 }
 
-function onPaintEnd() {
+async function onPaintEnd() {
   if (paintBatch.value) {
+    const kind = paintBatch.value;
     paintBatch.value = null;
+    clearPaintRefreshTimer();
+    await refreshPropsOnly();
     syncHistFlags();
-    setMsg("铺路完成", "ok");
+    const done =
+      kind === "road" ? "铺路完成" : kind === "circuit" ? "电路铺设完成" : kind === "water" ? "水管铺设完成" : "铺设完成";
+    setMsg(done, "ok");
     queueAutoSave(0);
   }
+}
+
+/** 点到点：一次提交整条折线格子 */
+async function placePathCells({ cells, brush }) {
+  if (!project.value || !brush || !cells?.length) return;
+  pushHistBeforeChange();
+  let props = [...(project.value.scene_config.props || [])];
+  for (const c of cells) {
+    const idx = props.findIndex(
+      (p) =>
+        p.kind === brush.kind &&
+        Math.abs((p.x || 0) - c.x) < 0.01 &&
+        Math.abs((p.z || 0) - c.z) < 0.01
+    );
+    if (idx >= 0) props.splice(idx, 1);
+    props.push(makePropItem(brush, c.x, 0, c.z, 0));
+  }
+  props = finalizeProps(props);
+  patchSceneConfig({ props });
+  clearPaintRefreshTimer();
+  await refreshPropsOnly();
+  syncHistFlags();
+  const label =
+    brush.kind === "road" ? "马路" : brush.kind === "circuit" ? "电路" : brush.kind === "water" ? "水管" : brush.name;
+  setMsg(`已点到点铺设「${label}」· ${cells.length} 格`, "ok");
+  queueAutoSave(0);
 }
 
 async function removeSceneProp(propId, opts = {}) {
@@ -696,10 +1230,23 @@ async function movePropTo({ id, x, y, z }) {
   const list = project.value.scene_config.props || [];
   const cur = list.find((p) => p.id === id);
   if (!cur) return;
-  if (cur.kind !== "road") {
+  let mx = x;
+  let my = y || 0;
+  let mz = z;
+  let mRot = cur.rotY || 0;
+  if (currentEnvId.value === "room" && cur.source === "device") {
+    const indoor = resolveIndoorPlace(mx, mz);
+    if (indoor) {
+      mx = indoor.x;
+      my = indoor.y;
+      mz = indoor.z;
+      mRot = indoor.rotY || 0;
+    }
+  }
+  if (!isPaintNetworkKind(cur.kind)) {
     const hit = findCollision(
       list.filter((q) => q.id !== id),
-      { x, z, kind: cur.kind, source: cur.source }
+      { x: mx, z: mz, kind: cur.kind, source: cur.source }
     );
     if (hit) {
       setMsg(`与「${hit.name}」重叠，无法移动`, "err");
@@ -708,7 +1255,7 @@ async function movePropTo({ id, x, y, z }) {
     }
   }
   const props = finalizeProps(
-    list.map((p) => (p.id === id ? { ...p, x, y: y || 0, z } : p))
+    list.map((p) => (p.id === id ? { ...p, x: mx, y: my, z: mz, rotY: mRot } : p))
   );
   await commitProps(props, { msgText: "已移动" });
 }
@@ -733,11 +1280,31 @@ async function redoBuild() {
   setMsg("已重做", "ok");
 }
 
+function refreshWireLinkLines() {
+  const showLinks =
+    consoleTool.value === "circuit" ||
+    consoleTool.value === "water" ||
+    placeBrush.value?.kind === "circuit" ||
+    placeBrush.value?.kind === "water";
+  const merged = [...annotatedWireLinks.value, ...annotatedWaterLinks.value];
+  viewer.syncWireLinkLines(merged, project.value?.scene_config?.props || [], {
+    visible: showLinks,
+  });
+}
+
+function syncCircuitVisibility() {
+  const showCircuit =
+    consoleTool.value === "circuit" || placeBrush.value?.kind === "circuit";
+  viewer.setCircuitVisible(showCircuit);
+  refreshWireLinkLines();
+}
+
 function closeConsoleTools() {
   consoleTool.value = "";
   if (bulldozeMode.value) viewer.setBulldozeMode(false);
   pickPlaceBrush(null);
   if (buildMode.value) viewer.setBuildMode(false);
+  syncCircuitVisibility();
 }
 
 function selectConsoleTool(tool) {
@@ -749,6 +1316,7 @@ function selectConsoleTool(tool) {
     closeConsoleTools();
     presentationMode.value = true;
     setMsg("已退出建造工具 · 演示模式", "ok");
+    syncCircuitVisibility();
     return;
   }
   presentationMode.value = false;
@@ -759,13 +1327,15 @@ function selectConsoleTool(tool) {
     if (!buildMode.value) viewer.setBuildMode(true);
     viewer.setBulldozeMode(true);
     setMsg("推土机：单击或拖过拆除 · 再点一次退出", "ok");
+    syncCircuitVisibility();
     return;
   }
   if (bulldozeMode.value) viewer.setBulldozeMode(false);
   placeCategory.value = tool.cat;
   if (!buildMode.value) viewer.setBuildMode(true);
   pickPlaceBrush(null);
-  // 路面 / 绿化 / 电路 / 水：自动拿起默认笔刷，减少一次点击
+  syncCircuitVisibility();
+  // 路面 / 绿化 / 电路 / 水 / 设备：自动拿起默认笔刷，减少一次点击
   nextTick(() => {
     let pick = null;
     if (tool.cat === "road") {
@@ -773,7 +1343,30 @@ function selectConsoleTool(tool) {
         placePaletteItems.value.find((i) => i.id === "road_tile") ||
         placePaletteItems.value[0];
       if (pick) pickPlaceBrush(pick);
-      setMsg("路面：拖拽铺设，弯道/路口按方向自动成型", "ok");
+      setMsg("路面：单击两点连铺（半透明预览）· 也可拖拽；弯道/路口自动成型", "ok");
+      return;
+    }
+    if (tool.cat === "device") {
+      pick = placePaletteItems.value[0];
+      if (pick) pickPlaceBrush(pick);
+      setMsg("设备：单击地面放置，绑定属性后可用电线连到开关", "ok");
+      return;
+    }
+    if (tool.cat === "circuit") {
+      pick =
+        placePaletteItems.value.find((i) => i.id === "util_circuit") ||
+        placePaletteItems.value[0];
+      if (pick) pickPlaceBrush(pick);
+      setMsg("电路：单击两点连铺（半透明预览）· 也可拖拽；仅编辑时可见", "ok");
+      syncCircuitVisibility();
+      return;
+    }
+    if (tool.cat === "water") {
+      pick =
+        placePaletteItems.value.find((i) => i.id === "util_water") ||
+        placePaletteItems.value[0];
+      if (pick) pickPlaceBrush(pick);
+      setMsg("水管：单击两点连铺（半透明预览）· 也可拖拽；阀/泵可沿线联动", "ok");
       return;
     }
     if (tool.cat === "decoration") {
@@ -781,23 +1374,7 @@ function selectConsoleTool(tool) {
         placePaletteItems.value.find((i) => /tree|grass|花|树|草/i.test(i.id + i.name)) ||
         placePaletteItems.value[0];
       if (pick) pickPlaceBrush(pick);
-      setMsg("绿化：点选地面刷树/草", "ok");
-      return;
-    }
-    if (tool.cat === "device") {
-      pick =
-        placePaletteItems.value.find((i) => /relay|灯|开关|mcu|esp/i.test(i.id + i.name)) ||
-        placePaletteItems.value[0];
-      if (pick) pickPlaceBrush(pick);
-      setMsg("电路：放置设备后可在检视器绑定物模型属性", "ok");
-      return;
-    }
-    if (tool.cat === "greenhouse") {
-      pick =
-        placePaletteItems.value.find((i) => /pump|valve|soil|水|泵|阀/i.test(i.id + i.name)) ||
-        placePaletteItems.value[0];
-      if (pick) pickPlaceBrush(pick);
-      setMsg("水系统：放置泵阀/传感器，绑定土壤湿度等属性", "ok");
+      setMsg("绿化：单击地面放置树/草（半透明预览跟随光标）", "ok");
       return;
     }
     setMsg(`已选择「${tool.label}」：在面板点选模型后点击地面放置`, "ok");
@@ -808,7 +1385,146 @@ function enterPresentationMode() {
   closeConsoleTools();
   presentationMode.value = true;
   settingsOpen.value = false;
-  setMsg("演示模式：显示设备状态与告警，点击告警可飞镜", "ok");
+  viewer.setCircuitVisible(false);
+  refreshWireLinkLines();
+  setMsg("演示模式：电路已隐藏 · 状态/告警优先", "ok");
+}
+
+function connectSelectedWire() {
+  const from = selectedPropId.value;
+  const to = linkTargetDraft.value;
+  if (!from || !to) {
+    setMsg(selectedIsSensor.value ? "请选择要连接的开关/模块" : "请选择要连接的受控模块", "err");
+    return;
+  }
+  const path = devicesCircuitConnected(
+    project.value?.scene_config?.props || [],
+    from,
+    to
+  );
+  if (!path.ok) {
+    setMsg(path.reason || "电路未连通，无法接线", "err");
+    viewer.setCircuitVisible(true);
+    refreshWireLinkLines();
+    return;
+  }
+  const next = addWireLink(wireLinks.value, from, to);
+  patchSceneConfig({ wire_links: next });
+  linkTargetDraft.value = "";
+  viewer.setCircuitVisible(true);
+  refreshWireLinkLines();
+  const role = deviceControlRole(selectedPlaced.value);
+  setMsg(
+    role === "sensor"
+      ? "已沿电路接通：传感器达控制阈值后将联动下游"
+      : "已沿电路接通：开关动作将直控下游模块",
+    "ok"
+  );
+  queueAutoSave(0);
+}
+
+function disconnectWire(linkId) {
+  const next = removeWireLink(wireLinks.value, linkId);
+  patchSceneConfig({ wire_links: next });
+  refreshWireLinkLines();
+  setMsg("已断开电线", "ok");
+  queueAutoSave(0);
+}
+
+function connectSelectedWater() {
+  const from = selectedPropId.value;
+  const to = waterLinkDraft.value;
+  if (!from || !to) {
+    setMsg("请选择要连接的阀/泵/闸", "err");
+    return;
+  }
+  if (!selectedIsWaterDevice.value) {
+    setMsg("当前设备不是阀/泵/闸，无法沿水管连线", "err");
+    return;
+  }
+  const path = devicesWaterConnected(
+    project.value?.scene_config?.props || [],
+    from,
+    to
+  );
+  if (!path.ok) {
+    setMsg(path.reason || "水管未连通，无法连接", "err");
+    refreshWireLinkLines();
+    return;
+  }
+  const next = addWaterLink(waterLinks.value, from, to);
+  patchSceneConfig({ water_links: next });
+  waterLinkDraft.value = "";
+  if (consoleTool.value !== "water") {
+    // 临时显示连线：切到水工具可见逻辑由 refresh 控制；此处强制刷新
+  }
+  refreshWireLinkLines();
+  setMsg("已沿水管接通：开/关将联动下游阀泵", "ok");
+  queueAutoSave(0);
+}
+
+function disconnectWater(linkId) {
+  const next = removeWaterLink(waterLinks.value, linkId);
+  patchSceneConfig({ water_links: next });
+  refreshWireLinkLines();
+  setMsg("已断开水管连线", "ok");
+  queueAutoSave(0);
+}
+
+function enterEditMode() {
+  presentationMode.value = false;
+  selectConsoleTool(CONSOLE_TOOLS[0]);
+  setMsg("编辑模式：底部工具可铺路 / 管网 / 绿化", "ok");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 一键巡检：按预设镜头顺序飞镜 */
+async function playInspectionTour() {
+  if (tourBusy.value) {
+    tourToken += 1;
+    tourBusy.value = false;
+    setMsg("巡检已停止", "ok");
+    return;
+  }
+  enterPresentationMode();
+  const token = ++tourToken;
+  tourBusy.value = true;
+
+  const roomStops = ROOM_FOCUS_PRESETS.filter((p) => p.id !== "overview").map((p) => ({
+    label: p.label,
+    target: p.target,
+    pos: p.pos,
+  }));
+  const outdoorStops = [
+    { label: "全景", preset: "orbit" },
+    { label: "俯视", preset: "top" },
+    { label: "特写", preset: "lamp" },
+    { label: "装配", preset: "board" },
+  ];
+  const stops =
+    currentEnvId.value === "room"
+      ? [{ label: "全屋俯视", target: ROOM_FOCUS_PRESETS[0].target, pos: ROOM_FOCUS_PRESETS[0].pos }, ...roomStops]
+      : outdoorStops;
+
+  setMsg("开始巡检…", "ok");
+  for (const stop of stops) {
+    if (token !== tourToken) return;
+    if (stop.preset) {
+      viewer.setCameraPreset(stop.preset);
+    } else {
+      viewer.focusLookAt(stop.target, stop.pos);
+      roomFocusId.value =
+        ROOM_FOCUS_PRESETS.find((p) => p.label === stop.label)?.id || roomFocusId.value;
+    }
+    setMsg(`巡检 · ${stop.label}`, "ok");
+    await sleep(1600);
+  }
+  if (token !== tourToken) return;
+  tourBusy.value = false;
+  setMsg("巡检完成", "ok");
 }
 
 function syncDeviceStatusViz() {
@@ -826,12 +1542,13 @@ function flyToAlert(alert) {
 }
 
 function toggleBuildMode() {
-  if (buildMode.value || consoleTool.value) {
+  if (buildMode.value || consoleTool.value || !presentationMode.value) {
     closeConsoleTools();
+    presentationMode.value = true;
     setMsg("已关闭操作台 · 演示模式", "ok");
     return;
   }
-  selectConsoleTool(CONSOLE_TOOLS[0]);
+  enterEditMode();
 }
 
 function toggleBulldoze() {
@@ -920,16 +1637,6 @@ function onDomFullscreenChange() {
   }
 }
 
-async function applyTemplate(tpl) {
-  if (!project.value || !tpl) return;
-  if (tpl.id === "room_iot_demo" && currentSceneId.value !== "room") {
-    applySceneType("room", { replaceParts: false });
-  }
-  const props = tpl.apply();
-  await commitProps(props, { msgText: `已应用模板「${tpl.label}」` });
-  nextTick(() => syncDeviceStatusViz());
-}
-
 function exportProject() {
   if (!project.value) return;
   const blob = new Blob([JSON.stringify(buildSaveBody(), null, 2)], {
@@ -981,6 +1688,9 @@ function bindSelectedProperty(name) {
             warnMax: prev.warnMax,
             alarmMin: prev.alarmMin,
             alarmMax: prev.alarmMax,
+            controlThreshold: prev.controlThreshold,
+            controlWhen: prev.controlWhen,
+            controlHysteresis: prev.controlHysteresis,
           }
         : { property: "" },
     };
@@ -1024,10 +1734,12 @@ function syncDraftNumber() {
   draftNumberValue.value = v === undefined || v === null ? "" : String(v);
 }
 
-async function writeShadowProperty(name, value) {
-  const key = String(name || "").trim();
-  if (!key) return false;
-  controlBusy.value = true;
+async function writeOneProperty(key, value) {
+  if (usingLinearData.value) {
+    localShadowOverrides.value = { ...localShadowOverrides.value, [key]: value };
+    linearShadow.value = { ...linearShadow.value, [key]: value };
+    return false;
+  }
   try {
     const res = await api.setProperty(key, value);
     if (res?.data && typeof res.data === "object") {
@@ -1039,13 +1751,66 @@ async function writeShadowProperty(name, value) {
     delete next[key];
     localShadowOverrides.value = next;
     shadowConnected.value = true;
-    setMsg(`已下发 ${key} = ${String(value)}`, "ok");
     return true;
   } catch (e) {
-    // 未连云端时仍可本地演示双向控制
     localShadowOverrides.value = { ...localShadowOverrides.value, [key]: value };
     shadowProps.value = { ...shadowProps.value, [key]: value };
-    setMsg(`本地演示写入 ${key}（云端：${e.message || "未连接"}）`, "ok");
+    return false;
+  }
+}
+
+async function writeShadowProperty(name, value, { fromPropId } = {}) {
+  const key = String(name || "").trim();
+  if (!key) return false;
+  controlBusy.value = true;
+  try {
+    const cloudOk = await writeOneProperty(key, value);
+    const sourceId =
+      fromPropId ||
+      (selectedBindingKey.value === key ? selectedPropId.value : "") ||
+      "";
+    const props = project.value?.scene_config?.props || [];
+    const shadowNow = effectiveShadow.value;
+    const linkedWire = sourceId
+      ? resolveLinkedWritesCascade(props, wireLinks.value, sourceId, value, shadowNow)
+      : [];
+    const linkedWater = sourceId
+      ? resolveWaterLinkedWritesCascade(props, waterLinks.value, sourceId, value, shadowNow)
+      : [];
+    const linked = [...linkedWire, ...linkedWater];
+    // 同属性去重，后写覆盖
+    const byProp = new Map();
+    for (const item of linked) byProp.set(item.property, item);
+    const linkedUnique = [...byProp.values()];
+    for (const item of linkedUnique) {
+      await writeOneProperty(item.property, item.value);
+    }
+    const pendingWire = sourceId
+      ? annotateWireLinksConnectivity(
+          props,
+          wireLinks.value.filter((l) => l.from === sourceId)
+        )
+      : [];
+    const pendingWater = sourceId
+      ? annotateWaterLinksConnectivity(
+          props,
+          waterLinks.value.filter((l) => l.from === sourceId)
+        )
+      : [];
+    const broken =
+      pendingWire.filter((l) => !l.connected).length +
+      pendingWater.filter((l) => !l.connected).length;
+    let linkHint = "";
+    if (linkedUnique.length) linkHint = ` · 联动 ${linkedUnique.length} 路`;
+    else if (broken) linkHint = ` · ${broken} 路断路未联动（请检查电路/水管）`;
+    setMsg(
+      usingLinearData.value
+        ? `线性模拟写入 ${key} = ${String(value)}${linkHint}`
+        : cloudOk
+          ? `已下发 ${key} = ${String(value)}${linkHint}`
+          : `本地演示写入 ${key}${linkHint}`,
+      "ok"
+    );
     return true;
   } finally {
     controlBusy.value = false;
@@ -1062,7 +1827,7 @@ async function toggleSelectedActuator() {
   const next = !truthyOn(cur);
   // 云端布尔；本地演示也可用 1/0
   const payload = typeof cur === "boolean" || cur === true || cur === false ? next : next ? 1 : 0;
-  await writeShadowProperty(key, payload);
+  await writeShadowProperty(key, payload, { fromPropId: selectedPropId.value });
 }
 
 async function applySelectedNumber() {
@@ -1073,17 +1838,24 @@ async function applySelectedNumber() {
     setMsg("请输入有效数字", "err");
     return;
   }
-  await writeShadowProperty(key, n);
+  await writeShadowProperty(key, n, { fromPropId: selectedPropId.value });
 }
 
 function onRealtimeMessage(msg) {
   if (!msg || typeof msg !== "object") return;
+  if (usingLinearData.value) {
+    if (msg.status) shadowConnected.value = !!msg.status.connected;
+    if (msg.type === "hello" && msg.status) shadowConnected.value = !!msg.status.connected;
+    return;
+  }
   if (msg.type === "props" || msg.type === "hello") {
+    let changed = null;
     if (msg.data && typeof msg.data === "object") {
+      changed = Object.keys(msg.data);
       shadowProps.value = { ...shadowProps.value, ...msg.data };
       // 云端推送覆盖同名本地演示覆盖
       const next = { ...localShadowOverrides.value };
-      for (const k of Object.keys(msg.data)) delete next[k];
+      for (const k of changed) delete next[k];
       localShadowOverrides.value = next;
     }
     if (msg.status) shadowConnected.value = !!msg.status.connected;
@@ -1091,25 +1863,22 @@ function onRealtimeMessage(msg) {
     syncDeviceStatusViz();
     recomputeLamp();
     syncDraftNumber();
+    if (changed?.length) void evalSensorWireLinks(changed);
   } else if (msg.type === "status") {
     shadowConnected.value = !!(msg.data?.connected ?? msg.status?.connected);
     if (msg.props && typeof msg.props === "object") {
+      const changed = Object.keys(msg.props);
       shadowProps.value = { ...shadowProps.value, ...msg.props };
       syncDeviceStatusViz();
       recomputeLamp();
+      if (changed.length) void evalSensorWireLinks(changed);
     }
   }
 }
 
 async function refreshShadow() {
   try {
-    const [shadow, metrics, st] = await Promise.all([
-      api.shadow(),
-      api.metrics(),
-      api.status().catch(() => null),
-    ]);
-    shadowProps.value = shadow.data || {};
-    shadowConnected.value = !!(st?.connected ?? shadow.connected);
+    const metrics = await api.metrics().catch(() => ({ items: [] }));
     const items = metrics.items || metrics.metrics || metrics || [];
     const meta = {};
     metricOptions.value = items
@@ -1127,8 +1896,26 @@ async function refreshShadow() {
       })
       .filter(Boolean);
     metricMeta.value = meta;
+
+    if (!usingLinearData.value) {
+      const [shadow, st] = await Promise.all([
+        api.shadow(),
+        api.status().catch(() => null),
+      ]);
+      shadowProps.value = shadow.data || {};
+      shadowConnected.value = !!(st?.connected ?? shadow.connected);
+    } else {
+      const st = await api.status().catch(() => null);
+      if (st) shadowConnected.value = !!st.connected;
+    }
+
     for (const k of Object.keys(effectiveShadow.value)) {
       if (!metricOptions.value.includes(k)) metricOptions.value.push(k);
+    }
+    for (const ch of linearChannels.value) {
+      if (ch.property && !metricOptions.value.includes(ch.property)) {
+        metricOptions.value.push(ch.property);
+      }
     }
   } catch {
     /* ignore */
@@ -1136,6 +1923,7 @@ async function refreshShadow() {
   syncDeviceStatusViz();
   recomputeLamp();
   syncDraftNumber();
+  if (!usingLinearData.value) void evalSensorWireLinks();
 }
 
 /** 静默自动保存（选择/改配置后立即落盘，无需点按钮） */
@@ -1145,6 +1933,59 @@ function queueAutoSave(delayMs = 280) {
   autoSaveTimer = setTimeout(() => {
     autoSave().catch(() => {});
   }, delayMs);
+}
+
+/** @deprecated 兼容旧调用名 */
+const voidAutoSave = queueAutoSave;
+
+/**
+ * 传感器影子变化时：按控制阈值自动写入下游开关/模块（仅电路连通的电线）。
+ * 开关手动下发已由 writeShadowProperty 内 resolveLinkedWritesCascade 处理。
+ */
+let sensorLinkEvalBusy = false;
+async function evalSensorWireLinks(changedKeys) {
+  if (sensorLinkEvalBusy || controlBusy.value) return;
+  const props = project.value?.scene_config?.props || [];
+  const links = wireLinks.value;
+  if (!props.length || !links.length) return;
+  // 云端模式只用真实影子+本地覆盖，避免 mergeDemoShadow 的填充值误触发联动
+  const shadow = usingLinearData.value
+    ? effectiveShadow.value || {}
+    : { ...(shadowProps.value || {}), ...(localShadowOverrides.value || {}) };
+  const keySet =
+    changedKeys && changedKeys.length ? new Set(changedKeys.map(String)) : null;
+  const jobs = [];
+  for (const p of props) {
+    if (deviceControlRole(p) !== "sensor") continue;
+    const propKey = String(p.binding?.property || "").trim();
+    if (!propKey) continue;
+    if (keySet && !keySet.has(propKey)) continue;
+    if (!getSensorControlRule(p).ok) continue;
+    const val = shadow[propKey];
+    if (val === undefined || val === null) continue;
+    const linked = resolveLinkedWritesCascade(props, links, p.id, val, shadow);
+    for (const item of linked) {
+      const cur = shadow[item.property];
+      const wantOn = truthyOn(item.value);
+      if (cur !== undefined && truthyOn(cur) === wantOn) continue;
+      jobs.push(item);
+    }
+  }
+  if (!jobs.length) return;
+  // 同属性去重
+  const byProp = new Map();
+  for (const item of jobs) byProp.set(item.property, item);
+  const uniqueJobs = [...byProp.values()];
+  sensorLinkEvalBusy = true;
+  try {
+    for (const item of uniqueJobs) {
+      await writeOneProperty(item.property, item.value);
+    }
+  } finally {
+    sensorLinkEvalBusy = false;
+    syncDeviceStatusViz();
+    recomputeLamp();
+  }
 }
 
 async function autoSave() {
@@ -1197,6 +2038,16 @@ watch(
     viewer.setDayNight(rules.sim_hour, lampOn.value);
     syncDeviceStatusViz();
   }
+);
+
+watch([consoleTool, placeBrush], () => {
+  syncCircuitVisibility();
+});
+
+watch(
+  () => [wireLinks.value, waterLinks.value, project.value?.scene_config?.props],
+  () => refreshWireLinkLines(),
+  { deep: true }
 );
 
 watch(selectedPropId, () => {
@@ -1252,6 +2103,7 @@ watch(twinAlerts, (list) => {
 
 onMounted(async () => {
   viewer.setOnPlace(placeAtPoint);
+  viewer.setOnPlacePath(placePathCells);
   viewer.setOnDeleteProp((id, opts) => removeSceneProp(id, opts));
   viewer.setOnPaintEnd(onPaintEnd);
   viewer.setOnMoveProp(movePropTo);
@@ -1260,6 +2112,7 @@ onMounted(async () => {
   document.addEventListener("fullscreenchange", onDomFullscreenChange);
   document.addEventListener("webkitfullscreenchange", onDomFullscreenChange);
   await loadList();
+  await loadCustomSceneTypes();
   await loadSceneLibrary();
   await refreshShadow();
   const qid = String(route.query.id || "").trim();
@@ -1274,7 +2127,9 @@ onMounted(async () => {
     tab.value = "sim";
   }
   histTimer = setInterval(pushHistory, 800);
+  if (usingLinearData.value) startLinearData();
   shadowTimer = setInterval(() => {
+    if (usingLinearData.value) return;
     refreshShadow().catch(() => {});
   }, 2500);
   try {
@@ -1308,6 +2163,9 @@ watch(
 );
 
 onUnmounted(() => {
+  tourToken += 1;
+  tourBusy.value = false;
+  clearPaintRefreshTimer();
   persistCamera();
   window.removeEventListener("keydown", onBuildHotkeys);
   document.removeEventListener("fullscreenchange", onDomFullscreenChange);
@@ -1318,6 +2176,7 @@ onUnmounted(() => {
   clearInterval(demoTimer);
   clearInterval(histTimer);
   clearInterval(shadowTimer);
+  stopLinearData();
   clearTimeout(autoSaveTimer);
   try {
     realtimeWs?.close?.();
@@ -1358,8 +2217,30 @@ onUnmounted(() => {
           <span class="badge dot" :class="lampOn ? 'on' : 'off'">{{ actuatorLabel }}</span>
           <span class="meta-text">{{ currentScene.label }} · {{ clockLabel }}</span>
           <div class="twin-cam">
-            <button class="btn" type="button" :class="{ primary: buildMode }" @click="toggleBuildMode">
-              {{ buildMode ? "关闭操作台" : "打开操作台" }}
+            <button
+              class="btn"
+              type="button"
+              :class="{ primary: presentationMode }"
+              @click="enterPresentationMode"
+            >
+              演示
+            </button>
+            <button
+              class="btn"
+              type="button"
+              :class="{ primary: !presentationMode }"
+              @click="toggleBuildMode"
+            >
+              {{ presentationMode ? "编辑" : "关闭编辑" }}
+            </button>
+            <button
+              class="btn"
+              type="button"
+              :class="{ primary: tourBusy }"
+              :disabled="busy"
+              @click="playInspectionTour"
+            >
+              {{ tourBusy ? "停止巡检" : "一键巡检" }}
             </button>
             <button class="btn" type="button" @click="viewer.setCameraPreset('orbit')">全景</button>
             <button class="btn" type="button" @click="viewer.setCameraPreset('top')">俯视</button>
@@ -1382,19 +2263,21 @@ onUnmounted(() => {
           <div v-if="deviceStatuses.length" class="hud-alerts">
             <div class="hud-alerts-head">
               <strong>设备状态</strong>
-              <button
-                class="btn"
-                type="button"
-                :class="{ primary: presentationMode }"
-                @click="presentationMode ? (presentationMode = false) : enterPresentationMode()"
-              >
-                {{ presentationMode ? "演示中" : "演示" }}
-              </button>
+              <span class="meta-text">{{ presentationMode ? "演示中" : "编辑中" }}</span>
             </div>
             <label class="hud-alerts-opt">
               <input v-model="autoFlyAlert" type="checkbox" />
               告警自动飞镜
             </label>
+            <button
+              class="btn"
+              type="button"
+              style="margin-top: 6px; width: 100%"
+              :class="{ primary: tourBusy }"
+              @click="playInspectionTour"
+            >
+              {{ tourBusy ? "停止巡检" : "一键巡检" }}
+            </button>
             <button
               v-for="a in twinAlerts.slice(0, 6)"
               :key="a.id"
@@ -1425,9 +2308,10 @@ onUnmounted(() => {
 
           <div class="twin-hint">
             <template v-if="bulldozeMode">推土机 · 单击/拖过拆除 · B / Esc 退出</template>
+            <template v-else-if="placeBrush?.kind === 'circuit'">铺电路「{{ placeBrush.name }}」· 仅此时可见 · Esc 取消</template>
             <template v-else-if="placeBrush">放置「{{ placeBrush.name }}」· Esc 取消</template>
-            <template v-else-if="buildMode">放置模式 · 底部选工具后点选素材</template>
-            <template v-else>演示模式 · 底部控制台切换工程 / 建造</template>
+            <template v-else-if="!presentationMode">编辑模式 · 设备/电路可连线联动开关</template>
+            <template v-else>演示模式 · 电路已隐藏 · 点「编辑」建造</template>
           </div>
 
           <div v-if="selectedPlaced" class="prop-inspector">
@@ -1435,7 +2319,7 @@ onUnmounted(() => {
             <span class="meta-text">
               {{ selectedPlaced.kind || selectedPlaced.source }}
               <template v-if="selectedPlaced.source === 'device'">
-                · {{ shadowConnected ? "云端已连" : "本地演示" }}
+                · {{ dataSourceLabel }}
               </template>
             </span>
             <div v-if="buildMode" class="row-actions" style="margin-top: 6px; flex-wrap: wrap">
@@ -1453,6 +2337,78 @@ onUnmounted(() => {
                 </select>
               </label>
 
+              <div class="bind-row" style="margin-top: 8px">
+                <span class="meta-text">{{ wireLinkHint }}</span>
+                <div class="bind-control" style="margin-top: 4px">
+                  <select v-model="linkTargetDraft" style="flex: 1; min-width: 0">
+                    <option value="">
+                      {{ selectedIsSensor ? "选择开关/模块…" : "选择受控模块…" }}
+                    </option>
+                    <option v-for="a in linkableActuators" :key="a.id" :value="a.id">
+                      {{ a.name }} · {{ a.binding?.property }}
+                    </option>
+                  </select>
+                  <button
+                    class="btn primary"
+                    type="button"
+                    :disabled="!linkTargetDraft"
+                    @click="connectSelectedWire"
+                  >
+                    连接
+                  </button>
+                </div>
+                <div
+                  v-for="l in selectedOutgoingLinks"
+                  :key="l.id"
+                  class="bind-control"
+                  style="margin-top: 4px"
+                >
+                  <span class="bind-val" :style="{ color: l.connected ? '' : '#ef4444' }">
+                    → {{ l.toName }}（{{ l.toProperty || "未绑定" }}）
+                    {{ l.connected ? "· 已连通" : "· 断路" }}
+                  </span>
+                  <button class="btn" type="button" @click="disconnectWire(l.id)">断开</button>
+                </div>
+                <p class="meta-text" style="margin: 4px 0 0">
+                  须先铺连续电路，两端设备靠近电路格才能接线。开关可直控下游；传感器须设控制阈值后才联动（支持多级连带）。黄线在「电路」工具下可见（通=黄 / 断=红）。
+                </p>
+              </div>
+
+              <div v-if="selectedIsWaterDevice" class="bind-row" style="margin-top: 8px">
+                <span class="meta-text">水管连接（阀/泵/闸联动）</span>
+                <div class="bind-control" style="margin-top: 4px">
+                  <select v-model="waterLinkDraft" style="flex: 1; min-width: 0">
+                    <option value="">选择下游阀/泵…</option>
+                    <option v-for="a in linkableWaterDevices" :key="a.id" :value="a.id">
+                      {{ a.name }} · {{ a.binding?.property }}
+                    </option>
+                  </select>
+                  <button
+                    class="btn primary"
+                    type="button"
+                    :disabled="!waterLinkDraft"
+                    @click="connectSelectedWater"
+                  >
+                    连接
+                  </button>
+                </div>
+                <div
+                  v-for="l in selectedOutgoingWaterLinks"
+                  :key="l.id"
+                  class="bind-control"
+                  style="margin-top: 4px"
+                >
+                  <span class="bind-val" :style="{ color: l.connected ? '' : '#ef4444' }">
+                    → {{ l.toName }}（{{ l.toProperty || "未绑定" }}）
+                    {{ l.connected ? "· 已连通" : "· 断管" }}
+                  </span>
+                  <button class="btn" type="button" @click="disconnectWater(l.id)">断开</button>
+                </div>
+                <p class="meta-text" style="margin: 4px 0 0">
+                  须先铺连续水管，两端靠近水管格。蓝线在「水」工具下可见（通=蓝 / 断=红）。
+                </p>
+              </div>
+
               <template v-if="selectedBindingKey">
                 <span class="bind-val">
                   当前值：{{ selectedBindingValue === null ? "—" : selectedBindingValue }}
@@ -1461,7 +2417,7 @@ onUnmounted(() => {
                 <!-- 双向控制 -->
                 <div class="bind-control">
                   <button
-                    v-if="selectedIsSwitch"
+                    v-if="selectedIsSwitch || selectedIsWaterDevice"
                     class="btn primary"
                     type="button"
                     :disabled="controlBusy"
@@ -1487,6 +2443,52 @@ onUnmounted(() => {
                       下发
                     </button>
                   </template>
+                </div>
+
+                <!-- 传感器控制阈值：高于/低于则开/关下游开关或模块 -->
+                <div v-if="selectedIsSensor" class="bind-thresholds">
+                  <span class="meta-text">控制阈值（联动电线）</span>
+                  <div class="th-grid">
+                    <label>
+                      阈值
+                      <input
+                        type="number"
+                        step="any"
+                        :value="selectedThresholds.controlThreshold"
+                        @change="patchSelectedBinding({ controlThreshold: $event.target.value })"
+                      />
+                    </label>
+                    <label>
+                      条件
+                      <select
+                        :value="selectedThresholds.controlWhen"
+                        @change="patchSelectedBinding({ controlWhen: $event.target.value })"
+                      >
+                        <option value="above">≥ 阈值开启</option>
+                        <option value="below">≤ 阈值开启</option>
+                      </select>
+                    </label>
+                    <label>
+                      回差
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        :value="selectedThresholds.controlHysteresis"
+                        @change="patchSelectedBinding({ controlHysteresis: $event.target.value })"
+                      />
+                    </label>
+                  </div>
+                  <p class="meta-text" style="margin: 4px 0 0">
+                    <template v-if="selectedSensorControl.ok">
+                      当前规则有效：数值{{ selectedThresholds.controlWhen === "below" ? "≤" : "≥" }}
+                      {{ selectedSensorControl.threshold }} 时开启下游
+                      <template v-if="selectedSensorControl.hysteresis">
+                        · 回差 {{ selectedSensorControl.hysteresis }}
+                      </template>
+                    </template>
+                    <template v-else>{{ selectedSensorControl.reason }}</template>
+                  </p>
                 </div>
 
                 <!-- 告警阈值（数值型） -->
@@ -1538,9 +2540,9 @@ onUnmounted(() => {
             </template>
           </div>
 
-          <!-- 选板浮层：选中路面/电路等工具时出现在控制台上方 -->
+          <!-- 选板浮层：编辑模式下选中路面/电路等工具时出现 -->
           <div
-            v-if="buildMode && consoleTool && consoleTool !== 'bulldoze'"
+            v-if="!presentationMode && consoleTool && consoleTool !== 'bulldoze'"
             class="cs-palette"
           >
             <div class="build-items">
@@ -1593,7 +2595,7 @@ onUnmounted(() => {
               <div class="field">
                 <label>图层</label>
                 <div class="layer-row" style="border: none; margin: 0; padding: 0">
-                  <label v-for="(lab, key) in { assembly: '装配', building: '建筑', decoration: '装饰', road: '马路', device: '设备' }" :key="key">
+                  <label v-for="(lab, key) in { assembly: '装配', building: '建筑', decoration: '装饰', road: '马路', circuit: '电路', device: '设备' }" :key="key">
                     <input
                       type="checkbox"
                       :checked="layerState[key]"
@@ -1664,7 +2666,7 @@ onUnmounted(() => {
               />
             </div>
 
-            <div class="cs-tools">
+            <div v-if="!presentationMode" class="cs-tools">
               <button
                 v-for="t in CONSOLE_TOOLS"
                 :key="t.id"
@@ -1679,6 +2681,27 @@ onUnmounted(() => {
               >
                 <span class="cs-tool-ico">{{ t.icon }}</span>
                 <span class="cs-tool-lab">{{ t.label }}</span>
+              </button>
+            </div>
+            <div v-else class="cs-tools cs-tools-demo">
+              <button
+                type="button"
+                class="cs-tool"
+                :class="{ active: tourBusy }"
+                title="一键巡检"
+                @click="playInspectionTour"
+              >
+                <span class="cs-tool-ico">巡</span>
+                <span class="cs-tool-lab">{{ tourBusy ? "停止" : "巡检" }}</span>
+              </button>
+              <button
+                type="button"
+                class="cs-tool"
+                title="进入编辑"
+                @click="enterEditMode"
+              >
+                <span class="cs-tool-ico">建</span>
+                <span class="cs-tool-lab">编辑</span>
               </button>
             </div>
 
@@ -1717,24 +2740,9 @@ onUnmounted(() => {
         </div>
 
         <section v-show="tab === 'scene'" class="panel twin-panel">
-          <h3>工程模板</h3>
-          <p class="page-desc" style="margin-top: 0">一键布置常见场景（会替换已放置建造物，不影响整机装配）。</p>
-          <div class="row-actions" style="margin-bottom: 12px; flex-wrap: wrap">
-            <button
-              v-for="t in templates"
-              :key="t.id"
-              class="btn"
-              type="button"
-              :title="t.desc"
-              @click="applyTemplate(t)"
-            >
-              {{ t.label }}
-            </button>
-          </div>
-
           <h3>整机装配（设备孪生）</h3>
           <p class="page-desc" style="margin-top: 0">
-            选择内置路灯或上传 GLB。三视图 / 图库 / 部件请到「设备管理」「场景管理」。城市场景用左侧底部选板建造。
+            整机可选内置路灯或上传 GLB。场景里带「精细」角标的是 Kenney CC0 低模；也可在「场景管理」继续上传自己的 GLB。
           </p>
           <div class="row-actions" style="margin-bottom: 12px; flex-wrap: wrap">
             <button class="btn primary" type="button" @click="useBuiltinStreetLight">内置路灯示例</button>
@@ -1753,23 +2761,75 @@ onUnmounted(() => {
           </div>
           <h3>场景类型</h3>
           <p class="page-desc" style="margin-top: 0">
-            「空地」为平整网格地面，可自由放置；其他类型带预设环境。修改后左侧 3D 会立即重建。
+            内置类型带预设环境；也可新建自定义类型（选底板 + 命名）。切换后左侧 3D 立即重建。
           </p>
-          <div class="scene-grid">
+          <div class="row-actions" style="margin-bottom: 10px; flex-wrap: wrap">
+            <button class="btn primary" type="button" :disabled="sceneTypeBusy" @click="openCreateSceneType">
+              新建场景类型
+            </button>
             <button
-              v-for="s in sceneTypes"
-              :key="s.id"
+              v-if="showSceneTypeForm"
+              class="btn"
               type="button"
-              class="scene-card"
-              :class="{ active: currentSceneId === s.id }"
-              @click="applySceneType(s.id)"
+              :disabled="sceneTypeBusy"
+              @click="resetSceneTypeForm"
             >
-              <strong>{{ s.label }}</strong>
-              <small>{{ s.desc }}</small>
+              取消
             </button>
           </div>
+          <div v-if="showSceneTypeForm" class="scene-type-form panel" style="margin-bottom: 12px; padding: 12px">
+            <div class="grid-2">
+              <div class="field">
+                <label>名称</label>
+                <input v-model="sceneTypeForm.name" placeholder="如：办公演示园区" />
+              </div>
+              <div class="field">
+                <label>底板环境</label>
+                <select v-model="sceneTypeForm.base" @change="onSceneTypeBaseChange">
+                  <option v-for="b in sceneTypeBaseOptions" :key="b.id" :value="b.id">{{ b.label }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>说明</label>
+              <input v-model="sceneTypeForm.desc" placeholder="可选" />
+            </div>
+            <div class="field">
+              <label>背景色</label>
+              <input v-model="sceneTypeForm.bg" type="color" style="width: 64px; height: 36px; padding: 2px" />
+            </div>
+            <div class="row-actions">
+              <button class="btn primary" type="button" :disabled="sceneTypeBusy" @click="saveSceneTypeForm">
+                {{ sceneTypeForm.editing ? "保存修改" : "创建并切换" }}
+              </button>
+            </div>
+          </div>
+          <div class="scene-grid">
+            <div
+              v-for="s in sceneTypes"
+              :key="s.id"
+              class="scene-card"
+              :class="{ active: currentSceneId === s.id, custom: !s.builtin }"
+            >
+              <button type="button" class="scene-card-main" @click="applySceneType(s.id)">
+                <strong>
+                  {{ s.label }}
+                  <span v-if="!s.builtin" class="scene-card-tag">自定义</span>
+                </strong>
+                <small>{{ s.desc }}</small>
+              </button>
+              <div v-if="!s.builtin" class="scene-card-actions">
+                <button class="btn" type="button" :disabled="sceneTypeBusy" @click.stop="openEditSceneType(s)">
+                  编辑
+                </button>
+                <button class="btn" type="button" :disabled="sceneTypeBusy" @click.stop="removeCustomSceneType(s)">
+                  删除
+                </button>
+              </div>
+            </div>
+          </div>
 
-          <div v-if="currentSceneId === 'room'" class="scene-opts">
+          <div v-if="currentEnvId === 'room'" class="scene-opts">
             <h4 class="sub-h">分房间查看</h4>
             <p class="meta-text" style="margin: 0 0 8px">
               点击下方空间，镜头飞入单独查看（含窗户与阳台）
@@ -1784,6 +2844,11 @@ onUnmounted(() => {
                 @click="focusRoomSpace(p.id)"
               >
                 {{ p.label }}
+              </button>
+            </div>
+            <div class="row-actions" style="margin: 8px 0 0; flex-wrap: wrap">
+              <button class="btn primary" type="button" @click="playInspectionTour">
+                {{ tourBusy ? "停止巡检" : "一键巡检全屋" }}
               </button>
             </div>
             <h4 class="sub-h">室内户型（默认三室一厅精装）</h4>
@@ -1833,7 +2898,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div v-else-if="currentSceneId === 'street'" class="scene-opts">
+          <div v-else-if="currentEnvId === 'street'" class="scene-opts">
             <h4 class="sub-h">街道形态</h4>
             <div class="mode-row">
               <button
@@ -1849,7 +2914,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div v-else-if="currentSceneId === 'greenhouse'" class="scene-opts">
+          <div v-else-if="currentEnvId === 'greenhouse'" class="scene-opts">
             <h4 class="sub-h">大棚作物</h4>
             <div class="chip-grid">
               <button
@@ -1865,7 +2930,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div v-else-if="currentSceneId === 'farm'" class="scene-opts">
+          <div v-else-if="currentEnvId === 'farm'" class="scene-opts">
             <h4 class="sub-h">农场种植</h4>
             <div class="chip-grid">
               <button
@@ -1881,7 +2946,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div v-else-if="currentSceneId === 'rice_paddy'" class="scene-opts">
+          <div v-else-if="currentEnvId === 'rice_paddy'" class="scene-opts">
             <h4 class="sub-h">稻田水系</h4>
             <label class="check-row">
               <input
@@ -1895,7 +2960,7 @@ onUnmounted(() => {
           </div>
 
           <p class="meta-text" style="margin-top: 12px">
-            当前：{{ currentScene.label }}。选择后立即生效并自动保存。
+            当前：{{ currentScene.label }}<template v-if="!currentScene.builtin">（自定义 · 底板 {{ currentEnvId }}）</template>。选择后立即生效并自动保存。
           </p>
 
           <h4 class="sub-h" style="margin-top: 16px">建造（天际线式）</h4>
@@ -1918,6 +2983,107 @@ onUnmounted(() => {
           <p class="page-desc" style="margin-top: 0">
             环境光照自适应 · 光敏 → 阈值 → 继电器 → 上报
           </p>
+
+          <div class="field">
+            <label>数据源</label>
+            <div class="mode-row">
+              <button
+                type="button"
+                class="mode-btn"
+                :class="{ active: !usingLinearData }"
+                @click="setDataSource('cloud')"
+              >
+                华为云
+              </button>
+              <button
+                type="button"
+                class="mode-btn"
+                :class="{ active: usingLinearData }"
+                @click="setDataSource('linear')"
+              >
+                线性模拟
+              </button>
+            </div>
+            <p class="meta-text" style="margin: 6px 0 0">
+              当前：{{ dataSourceLabel }}。线性模式在指定区间内往返采样并叠加随机扰动，写入仅本地生效。
+            </p>
+          </div>
+
+          <div v-if="usingLinearData" class="field" style="margin-top: 10px">
+            <label>刷新间隔（ms）</label>
+            <input
+              v-model.number="rules.linear_interval_ms"
+              type="number"
+              min="200"
+              max="5000"
+              step="100"
+              @change="startLinearData(); voidAutoSave(0)"
+            />
+            <div class="row-actions" style="margin-top: 8px; flex-wrap: wrap">
+              <button class="btn" type="button" @click="addLinearChannel">添加通道</button>
+              <button class="btn" type="button" @click="resetLinearChannels">恢复默认</button>
+            </div>
+            <div
+              v-for="(ch, idx) in linearChannels"
+              :key="`${ch.property}_${idx}`"
+              class="linear-ch"
+            >
+              <label>
+                属性
+                <input
+                  :value="ch.property"
+                  @change="patchLinearChannel(idx, { property: $event.target.value })"
+                />
+              </label>
+              <label>
+                下限
+                <input
+                  type="number"
+                  step="any"
+                  :value="ch.min"
+                  @change="patchLinearChannel(idx, { min: Number($event.target.value) })"
+                />
+              </label>
+              <label>
+                上限
+                <input
+                  type="number"
+                  step="any"
+                  :value="ch.max"
+                  @change="patchLinearChannel(idx, { max: Number($event.target.value) })"
+                />
+              </label>
+              <label>
+                周期(s)
+                <input
+                  type="number"
+                  min="4"
+                  step="1"
+                  :value="ch.periodSec"
+                  @change="patchLinearChannel(idx, { periodSec: Number($event.target.value) })"
+                />
+              </label>
+              <label>
+                噪声
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  :value="ch.noise"
+                  @change="patchLinearChannel(idx, { noise: Number($event.target.value) })"
+                />
+              </label>
+              <label class="linear-ch-bool">
+                <input
+                  type="checkbox"
+                  :checked="!!ch.boolean"
+                  @change="patchLinearChannel(idx, { boolean: $event.target.checked })"
+                />
+                开关量
+              </label>
+              <button class="btn" type="button" @click="removeLinearChannel(idx)">删</button>
+            </div>
+          </div>
 
           <div class="field">
             <label>模拟时间（{{ hourLabel(rules.sim_hour) }}）</label>
@@ -2114,10 +3280,25 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   background: var(--surface-solid);
   border-radius: 12px;
-  padding: 12px;
-  cursor: pointer;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.scene-card.custom {
+  border-style: dashed;
+}
+.scene-card-main {
   display: grid;
   gap: 4px;
+  text-align: left;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
 }
 .scene-card strong {
   font-size: 14px;
@@ -2135,6 +3316,20 @@ onUnmounted(() => {
 .scene-card.active small {
   color: var(--accent-deep);
   opacity: 0.85;
+}
+.scene-card-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #0ea5e9);
+}
+.scene-card-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+.scene-type-form .field {
+  margin-bottom: 8px;
 }
 .scene-opts {
   margin-top: 14px;
@@ -2235,6 +3430,44 @@ onUnmounted(() => {
   background: var(--accent);
   color: #fff;
   border-color: transparent;
+}
+.linear-ch {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(4, 0.7fr) auto auto;
+  gap: 6px;
+  align-items: end;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.linear-ch label {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.linear-ch input[type="number"],
+.linear-ch input[type="text"],
+.linear-ch input:not([type]) {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-solid);
+}
+.linear-ch-bool {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 6px;
+}
+@media (max-width: 1100px) {
+  .linear-ch {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 .sub-h {
   margin: 18px 0 8px;

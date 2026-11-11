@@ -6,6 +6,9 @@ export function footprintOf(kind, source) {
   switch (kind) {
     case "road":
       return { w: 2, d: 2 };
+    case "circuit":
+    case "water":
+      return { w: 1, d: 1 };
     case "residential":
       return { w: 3, d: 3 };
     case "greenhouse":
@@ -28,13 +31,17 @@ export function cellKey(x, z, snap = 2) {
 /** 建筑类是否与已有物体重叠（马路可覆盖马路；装饰可叠放） */
 export function findCollision(props, candidate, { ignoreId } = {}) {
   const kind = candidate.kind;
-  if (kind === "decoration" || kind === "road") return null;
+  if (kind === "decoration" || kind === "road" || kind === "circuit" || kind === "water") {
+    return null;
+  }
   const fp = footprintOf(kind, candidate.source);
   const halfW = fp.w / 2;
   const halfD = fp.d / 2;
   for (const p of props || []) {
     if (ignoreId && p.id === ignoreId) continue;
-    if (p.kind === "decoration" || p.kind === "road") continue;
+    if (p.kind === "decoration" || p.kind === "road" || p.kind === "circuit" || p.kind === "water") {
+      continue;
+    }
     if (p.source === "device" && candidate.source === "device") {
       // 设备之间近距离禁止
       if (Math.hypot((p.x || 0) - candidate.x, (p.z || 0) - candidate.z) < 0.8) return p;
@@ -81,9 +88,15 @@ export function paintRoadCells(x0, z0, x1, z1, snap = 2) {
 }
 
 export function layerOfProp(p) {
-  if (p.source === "device") return "device";
-  if (p.kind === "road") return "road";
-  if (p.kind === "decoration") return "decoration";
-  if (p.kind === "residential" || p.kind === "greenhouse" || p.kind === "shop") return "building";
+  if (p?.source === "device") return "device";
+  if (p?.kind === "road") return "road";
+  if (p?.kind === "circuit") return "circuit";
+  if (p?.kind === "water") return "water";
+  if (p?.kind === "decoration") return "decoration";
+  if (p?.kind === "residential" || p?.kind === "greenhouse" || p?.kind === "shop") return "building";
+  // 设备库 kind=board/sensor/actuator 但未带 source 时仍归设备层
+  if (p?.kind === "board" || p?.kind === "sensor" || p?.kind === "actuator" || p?.kind === "module") {
+    return "device";
+  }
   return "building";
 }

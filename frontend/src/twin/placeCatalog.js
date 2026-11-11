@@ -6,6 +6,8 @@ export const PLACE_CATEGORIES = [
   { id: "shop", label: "商店", source: "scene", hint: "商铺与市集" },
   { id: "decoration", label: "装饰", source: "scene", hint: "花、草、树等" },
   { id: "road", label: "马路", source: "scene", hint: "拖拽铺路，弯道/路口自动成型" },
+  { id: "circuit", label: "电路", source: "scene", hint: "拖拽铺电路，自动接弯/三通" },
+  { id: "water", label: "水管", source: "scene", hint: "拖拽铺水管，自动接弯/三通" },
   { id: "device", label: "设备", source: "device", hint: "开发板 / 传感器 / 执行器" },
 ];
 
@@ -38,6 +40,9 @@ export function resolveSnap(item, gridSize = GRID_SNAP) {
     case "greenhouse":
     case "shop":
       return base;
+    case "circuit":
+    case "water":
+      return Math.min(1, base);
     case "decoration":
       return Math.min(1, base);
     default:

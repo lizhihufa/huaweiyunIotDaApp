@@ -113,6 +113,16 @@ class LibrarySceneBody(BaseModel):
     builtin: bool | None = None
 
 
+class LibrarySceneTypeBody(BaseModel):
+    id: str | None = None
+    name: str = ""
+    desc: str = ""
+    base: str = "blank"
+    bg: str | None = None
+    fog: str | None = None
+    parts: list[dict[str, Any]] = Field(default_factory=list)
+
+
 @app.on_event("startup")
 async def on_startup() -> None:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -446,6 +456,45 @@ async def remove_library_scene(item_id: str) -> dict[str, Any]:
         raise HTTPException(400, str(exc)) from exc
     if not ok:
         raise HTTPException(404, "场景素材不存在")
+    return {"ok": True}
+
+
+@app.get("/api/library/scene-types")
+async def get_library_scene_types() -> dict[str, Any]:
+    return {
+        "items": library.list_scene_types(),
+        "bases": list(library.SCENE_TYPE_BASES),
+    }
+
+
+@app.post("/api/library/scene-types")
+async def create_library_scene_type(body: LibrarySceneTypeBody) -> dict[str, Any]:
+    try:
+        item = library.save_scene_type(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "item": item}
+
+
+@app.put("/api/library/scene-types/{item_id}")
+async def put_library_scene_type(item_id: str, body: LibrarySceneTypeBody) -> dict[str, Any]:
+    payload = body.model_dump()
+    payload["id"] = item_id
+    try:
+        item = library.save_scene_type(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "item": item}
+
+
+@app.delete("/api/library/scene-types/{item_id}")
+async def remove_library_scene_type(item_id: str) -> dict[str, Any]:
+    try:
+        ok = library.delete_scene_type(item_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not ok:
+        raise HTTPException(404, "场景类型不存在")
     return {"ok": True}
 
 

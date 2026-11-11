@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { buildEnvironment } from "./buildEnvironments";
 import { createBuiltinModel } from "./builtinModels";
 import { findPartNode, normalizeModelSize } from "./loadModel";
+import { resolveEnvId } from "./sceneTypes";
 
 function mat(color, opts = {}) {
   return new THREE.MeshStandardMaterial({
@@ -64,14 +65,16 @@ function texturedMaterial(canvas, fallbackColor) {
   });
 }
 
+/** 释放几何与材质；不 dispose 贴图（GLB 缓存与实例常共享 map） */
 function disposeObject3D(obj) {
+  if (!obj) return;
   obj.traverse((o) => {
     o.geometry?.dispose?.();
     if (o.material) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       mats.forEach((m) => {
-        m.map?.dispose?.();
-        m.dispose?.();
+        // 仅释放材质本身，避免弄坏 GLTFLoader 缓存里的共享贴图
+        m?.dispose?.();
       });
     }
   });
@@ -123,18 +126,19 @@ export function createTwinWorld(initialSceneType = "street", initialConfig = {})
 
   function buildDefaultAssembly() {
     clearAssembly();
-    if (sceneType === "blank") {
+    const env = resolveEnvId(sceneType);
+    if (env === "blank") {
       // 空地：无默认装配，只靠放置板建造
       lampLight.position.set(0, 6, 0);
       return;
     }
-    if (sceneType === "room") {
+    if (env === "room") {
       buildRoomDefaults();
-    } else if (sceneType === "greenhouse") {
+    } else if (env === "greenhouse") {
       buildGreenhouseDefaults();
-    } else if (sceneType === "farm") {
+    } else if (env === "farm") {
       buildFarmDefaults();
-    } else if (sceneType === "rice_paddy") {
+    } else if (env === "rice_paddy") {
       buildRiceDefaults();
     } else {
       buildStreetDefaults();
@@ -321,7 +325,7 @@ export function createTwinWorld(initialSceneType = "street", initialConfig = {})
       let obj = partModels[partId] || null;
 
       if (obj) {
-        normalizeModelSize(obj, Math.max(sx, sy, sz));
+        obj = normalizeModelSize(obj, Math.max(sx, sy, sz));
         obj.position.set(px, py, pz);
         markPart(obj, partId, labels[partId] || partId);
       } else {

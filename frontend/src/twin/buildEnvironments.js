@@ -5,6 +5,7 @@ import {
   cropMeta,
   mergeSceneConfig,
 } from "./sceneConfig";
+import { resolveEnvId } from "./sceneTypes";
 
 function mat(color, opts = {}) {
   return new THREE.MeshStandardMaterial({
@@ -35,8 +36,9 @@ function cyl(rTop, rBot, h, material, x = 0, y = 0, z = 0, segs = 16) {
 
 /** @returns {THREE.Group} */
 export function buildEnvironment(sceneType, config = {}) {
-  const cfg = mergeSceneConfig(sceneType, config);
-  switch (sceneType) {
+  const env = resolveEnvId(sceneType);
+  const cfg = mergeSceneConfig(env, config);
+  switch (env) {
     case "blank":
       return buildBlank(cfg);
     case "room":

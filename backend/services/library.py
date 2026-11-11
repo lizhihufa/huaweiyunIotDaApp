@@ -14,10 +14,15 @@ _SAFE = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 DEVICES_FILE = LIBRARY_DIR / "devices.json"
 SCENES_FILE = LIBRARY_DIR / "scenes.json"
+SCENE_TYPES_FILE = LIBRARY_DIR / "scene_types.json"
 
 DEVICE_KINDS = ("board", "sensor", "actuator", "module")
 # 天际线式分区：住宅 / 大棚 / 商店 / 装饰 / 马路
-SCENE_KINDS = ("residential", "greenhouse", "shop", "decoration", "road")
+SCENE_KINDS = ("residential", "greenhouse", "shop", "decoration", "road", "circuit", "water")
+# 自定义场景类型可选用的底板（与前端内置 SCENE_TYPES 对齐）
+SCENE_TYPE_BASES = ("blank", "street", "room", "greenhouse", "farm", "rice_paddy")
+# 空默认：内置类型在前端硬编码，此文件只存用户自定义
+DEFAULT_SCENE_TYPES: list[dict[str, Any]] = []
 
 # 旧分类 → 新分类（兼容已有库）
 _SCENE_KIND_MIGRATE = {
@@ -304,7 +309,7 @@ DEFAULT_DEVICES: list[dict[str, Any]] = [
 
 DEFAULT_SCENES: list[dict[str, Any]] = [
     # —— 住宅 ——
-    {"id": "house_small", "name": "小住宅", "kind": "residential", "model": {"kind": "builtin", "id": "bld_house_small"}, "builtin": True, "desc": "单层住宅"},
+    {"id": "house_small", "name": "小住宅（精细）", "kind": "residential", "model": {"kind": "glb", "url": "/models/kenney/building-type-a.glb", "fit": 5.2}, "builtin": True, "desc": "Kenney 低模住宅 · CC0"},
     {"id": "house_two_story", "name": "两层住宅", "kind": "residential", "model": {"kind": "builtin", "id": "bld_house_two"}, "builtin": True, "desc": "双层民居"},
     {"id": "apartment_block", "name": "公寓楼", "kind": "residential", "model": {"kind": "builtin", "id": "bld_apartment"}, "builtin": True, "desc": "多层公寓"},
     # —— 大棚 ——
@@ -319,7 +324,7 @@ DEFAULT_SCENES: list[dict[str, Any]] = [
     # —— 装饰（花草树） ——
     {"id": "grass_patch", "name": "草地块", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_grass"}, "builtin": True, "desc": "短草坪"},
     {"id": "grass_tall", "name": "高草丛", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_grass_tall"}, "builtin": True, "desc": "高草"},
-    {"id": "tree_deciduous", "name": "阔叶树", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_tree"}, "builtin": True, "desc": "行道树"},
+    {"id": "tree_deciduous", "name": "阔叶树（精细）", "kind": "decoration", "model": {"kind": "glb", "url": "/models/kenney/tree_detailed.glb", "fit": 3.6}, "builtin": True, "desc": "Kenney 精细树 · CC0"},
     {"id": "tree_pine", "name": "松树", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_pine"}, "builtin": True, "desc": "针叶树"},
     {"id": "tree_fruit", "name": "果树", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_fruit_tree"}, "builtin": True, "desc": "果树"},
     {"id": "plant_bush", "name": "灌木盆栽", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_plant"}, "builtin": True, "desc": "盆栽"},
@@ -350,15 +355,21 @@ DEFAULT_SCENES: list[dict[str, Any]] = [
     {"id": "tree_palm", "name": "棕榈", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_palm"}, "builtin": True, "desc": "热带树"},
     {"id": "bamboo", "name": "竹丛", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_bamboo"}, "builtin": True, "desc": "竹子"},
     {"id": "sunflower", "name": "向日葵", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_sunflower"}, "builtin": True, "desc": "花卉作物"},
-    {"id": "bench", "name": "长椅", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_bench"}, "builtin": True, "desc": "街边长椅"},
+    {"id": "bench", "name": "长椅（精细）", "kind": "decoration", "model": {"kind": "glb", "url": "/models/kenney/bench.glb", "fit": 1.5}, "builtin": True, "desc": "Kenney 长椅 · CC0"},
     {"id": "fountain", "name": "喷泉", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_fountain"}, "builtin": True, "desc": "景观喷泉"},
     {"id": "mailbox", "name": "邮筒", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_mailbox"}, "builtin": True, "desc": "路边邮筒"},
-    {"id": "yard_lamp", "name": "庭院灯", "kind": "decoration", "model": {"kind": "builtin", "id": "scene_lamp_deco"}, "builtin": True, "desc": "装饰路灯"},
+    {"id": "yard_lamp", "name": "庭院灯（精细）", "kind": "decoration", "model": {"kind": "glb", "url": "/models/kenney/light-square.glb", "fit": 4.2}, "builtin": True, "desc": "Kenney 路灯 · CC0"},
+    {"id": "sofa_lounge", "name": "沙发（精细）", "kind": "decoration", "model": {"kind": "glb", "url": "/models/kenney/lounge-sofa.glb", "fit": 2.2}, "builtin": True, "desc": "室内沙发 · Kenney CC0", "snap": 0.5},
+    {"id": "desk_office", "name": "书桌（精细）", "kind": "decoration", "model": {"kind": "glb", "url": "/models/kenney/desk.glb", "fit": 1.6}, "builtin": True, "desc": "室内书桌 · Kenney CC0", "snap": 0.5},
+    {"id": "table_coffee", "name": "茶几（精细）", "kind": "decoration", "model": {"kind": "glb", "url": "/models/kenney/table-coffee.glb", "fit": 1.1}, "builtin": True, "desc": "室内茶几 · Kenney CC0", "snap": 0.5},
     {"id": "road_t", "name": "丁字路口", "kind": "road", "model": {"kind": "builtin", "id": "road_t"}, "builtin": True, "desc": "T 型路口", "snap": 2},
     {"id": "road_curve", "name": "弯道", "kind": "road", "model": {"kind": "builtin", "id": "road_curve"}, "builtin": True, "desc": "转弯路段", "snap": 2},
     {"id": "road_zebra", "name": "斑马线", "kind": "road", "model": {"kind": "builtin", "id": "road_zebra"}, "builtin": True, "desc": "人行横道", "snap": 2},
     {"id": "parking", "name": "停车位", "kind": "road", "model": {"kind": "builtin", "id": "road_parking"}, "builtin": True, "desc": "停车格", "snap": 2},
     {"id": "bridge", "name": "小桥", "kind": "road", "model": {"kind": "builtin", "id": "road_bridge"}, "builtin": True, "desc": "过河小桥", "snap": 2},
+    # —— 管网（电路 / 水管，拖拽自动接管） ——
+    {"id": "util_circuit", "name": "电路（自动接管）", "kind": "circuit", "model": {"kind": "builtin", "id": "util_circuit"}, "builtin": True, "desc": "拖拽铺设电路，弯头/三通自动成型", "snap": 1},
+    {"id": "util_water", "name": "水管（自动接管）", "kind": "water", "model": {"kind": "builtin", "id": "util_water"}, "builtin": True, "desc": "拖拽铺设水管，弯头/三通自动成型", "snap": 1},
 ]
 
 
@@ -395,7 +406,7 @@ def _ensure_store(path, defaults: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not cur.get("builtin"):
             continue
         # 同步内置项的分类 / 名称 / 模型
-        for key in ("name", "kind", "model", "desc", "snap", "layer", "part_id"):
+        for key in ("name", "kind", "model", "desc", "snap", "layer", "part_id", "fit"):
             if key in d and cur.get(key) != d.get(key):
                 cur[key] = d[key]
                 changed = True
@@ -422,6 +433,7 @@ def _write_items(path, items: list[dict[str, Any]]) -> None:
 def ensure_default() -> None:
     _ensure_store(DEVICES_FILE, DEFAULT_DEVICES)
     _ensure_store(SCENES_FILE, DEFAULT_SCENES)
+    _ensure_store(SCENE_TYPES_FILE, DEFAULT_SCENE_TYPES)
 
 
 def list_devices() -> list[dict[str, Any]]:
@@ -432,12 +444,20 @@ def list_scenes() -> list[dict[str, Any]]:
     return _ensure_store(SCENES_FILE, DEFAULT_SCENES)
 
 
+def list_scene_types() -> list[dict[str, Any]]:
+    return _ensure_store(SCENE_TYPES_FILE, DEFAULT_SCENE_TYPES)
+
+
 def get_device(item_id: str) -> dict[str, Any] | None:
     return next((x for x in list_devices() if x.get("id") == item_id), None)
 
 
 def get_scene(item_id: str) -> dict[str, Any] | None:
     return next((x for x in list_scenes() if x.get("id") == item_id), None)
+
+
+def get_scene_type(item_id: str) -> dict[str, Any] | None:
+    return next((x for x in list_scene_types() if x.get("id") == item_id), None)
 
 
 def _sanitize_id(raw: str | None, prefix: str) -> str:
@@ -530,4 +550,74 @@ def delete_scene(item_id: str) -> bool:
         raise ValueError("内置场景素材不可删除")
     next_items = [i for i in items if i["id"] != item_id]
     _write_items(SCENES_FILE, next_items)
+    return True
+
+
+def _normalize_parts(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        pid = str(p.get("id") or "").strip()
+        if not pid:
+            continue
+        out.append(
+            {
+                "id": pid[:40],
+                "label": str(p.get("label") or pid).strip()[:80],
+                "layer": str(p.get("layer") or "自定义").strip()[:40],
+                "shape": str(p.get("shape") or "box").strip()[:20],
+            }
+        )
+    return out
+
+
+def save_scene_type(body: dict[str, Any]) -> dict[str, Any]:
+    items = list_scene_types()
+    item_id = _sanitize_id(body.get("id"), "stype")
+    # 禁止覆盖内置 id
+    if item_id in SCENE_TYPE_BASES:
+        raise ValueError(f"不可使用内置场景类型 id：{item_id}")
+    base = body.get("base") or "blank"
+    if base not in SCENE_TYPE_BASES:
+        base = "blank"
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise ValueError("请填写场景类型名称")
+    now = _now()
+    existing = next((i for i in items if i["id"] == item_id), None)
+    if existing and existing.get("builtin"):
+        raise ValueError("内置场景类型不可修改")
+    item = {
+        **(existing or {}),
+        "id": item_id,
+        "name": name[:80],
+        "desc": str(body.get("desc") or "").strip()[:200],
+        "base": base,
+        "bg": str(body.get("bg") or "").strip()[:20] or None,
+        "fog": str(body.get("fog") or "").strip()[:20] or None,
+        "parts": _normalize_parts(body.get("parts")),
+        "builtin": False,
+        "updated_at": now,
+        "created_at": (existing or {}).get("created_at") or now,
+    }
+    if existing:
+        items = [item if i["id"] == item_id else i for i in items]
+    else:
+        items.append(item)
+    _write_items(SCENE_TYPES_FILE, items)
+    return item
+
+
+def delete_scene_type(item_id: str) -> bool:
+    items = list_scene_types()
+    target = next((i for i in items if i["id"] == item_id), None)
+    if not target:
+        return False
+    if target.get("builtin"):
+        raise ValueError("内置场景类型不可删除")
+    next_items = [i for i in items if i["id"] != item_id]
+    _write_items(SCENE_TYPES_FILE, next_items)
     return True

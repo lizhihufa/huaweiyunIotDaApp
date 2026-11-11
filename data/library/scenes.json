@@ -2,14 +2,15 @@
   "items": [
     {
       "id": "house_small",
-      "name": "小住宅",
+      "name": "小住宅（精细）",
       "kind": "residential",
       "model": {
-        "kind": "builtin",
-        "id": "bld_house_small"
+        "kind": "glb",
+        "url": "/models/kenney/building-type-a.glb",
+        "fit": 5.2
       },
       "builtin": true,
-      "desc": "单层住宅",
+      "desc": "Kenney 低模住宅 · CC0",
       "created_at": "2026-11-04T01:37:20+08:00",
       "updated_at": "2026-11-04T01:37:20+08:00"
     },
@@ -158,14 +159,15 @@
     },
     {
       "id": "tree_deciduous",
-      "name": "阔叶树",
+      "name": "阔叶树（精细）",
       "kind": "decoration",
       "model": {
-        "kind": "builtin",
-        "id": "scene_tree"
+        "kind": "glb",
+        "url": "/models/kenney/tree_detailed.glb",
+        "fit": 3.6
       },
       "builtin": true,
-      "desc": "行道树",
+      "desc": "Kenney 精细树 · CC0",
       "created_at": "2026-11-04T01:37:20+08:00",
       "updated_at": "2026-11-04T01:37:20+08:00"
     },
@@ -540,14 +542,15 @@
     },
     {
       "id": "bench",
-      "name": "长椅",
+      "name": "长椅（精细）",
       "kind": "decoration",
       "model": {
-        "kind": "builtin",
-        "id": "scene_bench"
+        "kind": "glb",
+        "url": "/models/kenney/bench.glb",
+        "fit": 1.5
       },
       "builtin": true,
-      "desc": "街边长椅",
+      "desc": "Kenney 长椅 · CC0",
       "created_at": "2026-11-04T10:37:24+08:00",
       "updated_at": "2026-11-04T10:37:24+08:00"
     },
@@ -579,14 +582,15 @@
     },
     {
       "id": "yard_lamp",
-      "name": "庭院灯",
+      "name": "庭院灯（精细）",
       "kind": "decoration",
       "model": {
-        "kind": "builtin",
-        "id": "scene_lamp_deco"
+        "kind": "glb",
+        "url": "/models/kenney/light-square.glb",
+        "fit": 4.2
       },
       "builtin": true,
-      "desc": "装饰路灯",
+      "desc": "Kenney 路灯 · CC0",
       "created_at": "2026-11-04T10:37:24+08:00",
       "updated_at": "2026-11-04T10:37:24+08:00"
     },
@@ -659,6 +663,79 @@
       "snap": 2,
       "created_at": "2026-11-04T10:37:24+08:00",
       "updated_at": "2026-11-04T10:37:24+08:00"
+    },
+    {
+      "id": "sofa_lounge",
+      "name": "沙发（精细）",
+      "kind": "decoration",
+      "model": {
+        "kind": "glb",
+        "url": "/models/kenney/lounge-sofa.glb",
+        "fit": 2.2
+      },
+      "builtin": true,
+      "desc": "室内沙发 · Kenney CC0",
+      "snap": 0.5,
+      "created_at": "2026-11-07T08:27:41+08:00",
+      "updated_at": "2026-11-07T08:27:41+08:00"
+    },
+    {
+      "id": "desk_office",
+      "name": "书桌（精细）",
+      "kind": "decoration",
+      "model": {
+        "kind": "glb",
+        "url": "/models/kenney/desk.glb",
+        "fit": 1.6
+      },
+      "builtin": true,
+      "desc": "室内书桌 · Kenney CC0",
+      "snap": 0.5,
+      "created_at": "2026-11-07T08:27:41+08:00",
+      "updated_at": "2026-11-07T08:27:41+08:00"
+    },
+    {
+      "id": "table_coffee",
+      "name": "茶几（精细）",
+      "kind": "decoration",
+      "model": {
+        "kind": "glb",
+        "url": "/models/kenney/table-coffee.glb",
+        "fit": 1.1
+      },
+      "builtin": true,
+      "desc": "室内茶几 · Kenney CC0",
+      "snap": 0.5,
+      "created_at": "2026-11-07T08:27:41+08:00",
+      "updated_at": "2026-11-07T08:27:41+08:00"
+    },
+    {
+      "id": "util_circuit",
+      "name": "电路（自动接管）",
+      "kind": "circuit",
+      "model": {
+        "kind": "builtin",
+        "id": "util_circuit"
+      },
+      "builtin": true,
+      "desc": "拖拽铺设电路，弯头/三通自动成型",
+      "snap": 1,
+      "created_at": "2026-11-07T08:27:41+08:00",
+      "updated_at": "2026-11-07T08:27:41+08:00"
+    },
+    {
+      "id": "util_water",
+      "name": "水管（自动接管）",
+      "kind": "water",
+      "model": {
+        "kind": "builtin",
+        "id": "util_water"
+      },
+      "builtin": true,
+      "desc": "拖拽铺设水管，弯头/三通自动成型",
+      "snap": 1,
+      "created_at": "2026-11-07T08:27:41+08:00",
+      "updated_at": "2026-11-07T08:27:41+08:00"
     }
   ]
 }

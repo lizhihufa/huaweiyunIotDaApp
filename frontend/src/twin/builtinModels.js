@@ -387,9 +387,10 @@ export function createSceneGrassTall() {
 
 export function createSceneTree() {
   const g = new THREE.Group();
-  g.add(cyl(0.12, 0.16, 1.6, mat(0x7c4a2d, { roughness: 0.85 }), 0, 0.8, 0, 10));
-  g.add(cone(0.85, 1.4, mat(0x3f6212), 0, 2.0, 0, 10));
-  g.add(cone(0.65, 1.1, mat(0x4d7c0f), 0, 2.7, 0, 10));
+  g.add(cyl(0.14, 0.18, 1.8, mat(0x7c4a2d, { roughness: 0.85 }), 0, 0.9, 0, 10));
+  g.add(cone(1.05, 1.6, mat(0x3f6212), 0, 2.2, 0, 10));
+  g.add(cone(0.8, 1.25, mat(0x4d7c0f), 0, 3.0, 0, 10));
+  g.add(cone(0.5, 0.9, mat(0x65a30d), 0, 3.6, 0, 10));
   return tagScene(g, "scene_tree", "tree");
 }
 
@@ -665,7 +666,7 @@ function roadCurbZ(g) {
   g.add(box(0.06, 0.03, 1.95, white, -0.88, 0.08, 0));
 }
 
-/** 路端：默认朝 +Z */
+/** 路端：默认朝 +Z（自动拼装用；面板只暴露一块马路砖） */
 export function createRoadTile() {
   const g = new THREE.Group();
   roadDeck(g);
@@ -674,23 +675,25 @@ export function createRoadTile() {
   return tagScene(g, "road_tile", "road");
 }
 
-/** 直道：默认沿 Z（±Z） */
+/** 直道：默认沿 Z（±Z）— 与路端同底板，虚线贯通 */
 export function createRoadStraight() {
   const g = new THREE.Group();
   roadDeck(g);
-  roadDashZ(g, -0.75, 0.75, 0.5);
+  roadDashZ(g, -0.85, 0.85, 0.55);
   roadCurbZ(g);
   return tagScene(g, "road_straight", "road");
 }
 
-/** 十字路口 */
+/** 十字路口：中央留空 + 四向短虚线，区别于直道 */
 export function createRoadCross() {
   const g = new THREE.Group();
   roadDeck(g);
-  roadDashZ(g, -0.75, -0.35, 0.4);
-  roadDashZ(g, 0.35, 0.75, 0.4);
-  roadDashX(g, -0.75, -0.35, 0.4);
-  roadDashX(g, 0.35, 0.75, 0.4);
+  // 中央浅色交叉区
+  g.add(box(0.9, 0.03, 0.9, mat(0x57534e, { roughness: 0.75 }), 0, 0.065, 0));
+  roadDashZ(g, -0.9, -0.45, 0.35);
+  roadDashZ(g, 0.45, 0.9, 0.35);
+  roadDashX(g, -0.9, -0.45, 0.35);
+  roadDashX(g, 0.45, 0.9, 0.35);
   return tagScene(g, "road_cross", "road");
 }
 
@@ -1037,6 +1040,161 @@ export function createParking() {
   g.add(box(0.08, 0.02, 3.6, mat(0xf8fafc), 1.0, 0.09, 0));
   return tagScene(g, "road_parking", "road");
 }
+
+/** 沿本地轴的圆柱管段（默认轴向 Y，再旋转） */
+function pipeSeg(r, len, material, x, y, z, axis = "z") {
+  const mesh = cyl(r, r, len, material, x, y, z, 14);
+  if (axis === "z") mesh.rotation.x = Math.PI / 2;
+  else if (axis === "x") mesh.rotation.z = Math.PI / 2;
+  return mesh;
+}
+
+function utilNode(r, material, x, y, z) {
+  return cyl(r, r, r * 1.6, material, x, y, z, 12);
+}
+
+/**
+ * 管网单格（1×1）
+ * - 电路：深色基板 + 金铜色走线/焊点
+ * - 水管：浅槽 + 青蓝圆管与管件
+ */
+function utilCell(kind, style) {
+  const g = new THREE.Group();
+  const isCircuit = kind === "circuit";
+
+  if (isCircuit) {
+    const pad = mat(0x1a1a1e, { roughness: 0.92, metalness: 0.08 });
+    const edge = mat(0x292524, { roughness: 0.85, metalness: 0.12 });
+    g.add(box(0.98, 0.035, 0.98, pad, 0, 0.018, 0));
+    g.add(box(0.98, 0.012, 0.04, edge, 0, 0.04, 0.47));
+    g.add(box(0.98, 0.012, 0.04, edge, 0, 0.04, -0.47));
+    g.add(box(0.04, 0.012, 0.98, edge, 0.47, 0.04, 0));
+    g.add(box(0.04, 0.012, 0.98, edge, -0.47, 0.04, 0));
+
+    const trace = mat(0xfbbf24, {
+      roughness: 0.35,
+      metalness: 0.65,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.35,
+    });
+    const solder = mat(0xfde68a, {
+      roughness: 0.25,
+      metalness: 0.7,
+      emissive: 0xfbbf24,
+      emissiveIntensity: 0.2,
+    });
+    const y = 0.07;
+    const tw = 0.07;
+    const th = 0.03;
+
+    const addTraceZ = (z0, z1) => {
+      const len = Math.abs(z1 - z0);
+      const zc = (z0 + z1) / 2;
+      g.add(box(tw, th, len, trace, 0, y, zc));
+    };
+    const addTraceX = (x0, x1) => {
+      const len = Math.abs(x1 - x0);
+      const xc = (x0 + x1) / 2;
+      g.add(box(len, th, tw, trace, xc, y, 0));
+    };
+    const addPad = (x, z) => g.add(box(0.16, 0.04, 0.16, solder, x, y + 0.01, z));
+
+    if (style === "end") {
+      addTraceZ(-0.05, 0.42);
+      addPad(0, 0.42);
+      g.add(box(0.2, 0.08, 0.14, solder, 0, y + 0.03, 0.42));
+    } else if (style === "straight") {
+      addTraceZ(-0.45, 0.45);
+      addPad(0, 0);
+    } else if (style === "curve") {
+      addTraceZ(0, 0.45);
+      addTraceX(0, 0.45);
+      addPad(0, 0);
+    } else if (style === "t") {
+      addTraceZ(-0.45, 0.45);
+      addTraceX(0, 0.45);
+      addPad(0, 0);
+    } else {
+      addTraceZ(-0.45, 0.45);
+      addTraceX(-0.45, 0.45);
+      addPad(0, 0);
+    }
+  } else {
+    // 水管：地沟底板 + 圆管
+    const trench = mat(0x334155, { roughness: 0.88, metalness: 0.1 });
+    const gravel = mat(0x475569, { roughness: 0.95, metalness: 0.05 });
+    g.add(box(0.98, 0.03, 0.98, trench, 0, 0.015, 0));
+    g.add(box(0.72, 0.02, 0.72, gravel, 0, 0.035, 0));
+
+    const pipe = mat(0x38bdf8, {
+      roughness: 0.28,
+      metalness: 0.55,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.22,
+    });
+    const fitting = mat(0x0ea5e9, {
+      roughness: 0.32,
+      metalness: 0.6,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.18,
+    });
+    const y = 0.14;
+    const r = 0.09;
+
+    if (style === "end") {
+      g.add(pipeSeg(r, 0.55, pipe, 0, y, 0.12, "z"));
+      g.add(utilNode(0.12, fitting, 0, y, 0.42));
+      g.add(box(0.2, 0.06, 0.08, fitting, 0, y + 0.1, 0.42));
+    } else if (style === "straight") {
+      g.add(pipeSeg(r, 0.92, pipe, 0, y, 0, "z"));
+      g.add(utilNode(0.1, fitting, 0, y, 0));
+    } else if (style === "curve") {
+      g.add(pipeSeg(r, 0.5, pipe, 0, y, 0.22, "z"));
+      g.add(pipeSeg(r, 0.5, pipe, 0.22, y, 0, "x"));
+      g.add(utilNode(0.13, fitting, 0, y, 0));
+    } else if (style === "t") {
+      g.add(pipeSeg(r, 0.92, pipe, 0, y, 0, "z"));
+      g.add(pipeSeg(r, 0.48, pipe, 0.24, y, 0, "x"));
+      g.add(utilNode(0.13, fitting, 0, y, 0));
+    } else {
+      g.add(pipeSeg(r, 0.92, pipe, 0, y, 0, "z"));
+      g.add(pipeSeg(r, 0.92, pipe, 0, y, 0, "x"));
+      g.add(utilNode(0.14, fitting, 0, y, 0));
+    }
+  }
+  return g;
+}
+
+export function createUtilCircuit() {
+  return tagScene(utilCell("circuit", "end"), "util_circuit", "circuit");
+}
+export function createUtilCircuitS() {
+  return tagScene(utilCell("circuit", "straight"), "util_circuit_s", "circuit");
+}
+export function createUtilCircuitC() {
+  return tagScene(utilCell("circuit", "curve"), "util_circuit_c", "circuit");
+}
+export function createUtilCircuitT() {
+  return tagScene(utilCell("circuit", "t"), "util_circuit_t", "circuit");
+}
+export function createUtilCircuitX() {
+  return tagScene(utilCell("circuit", "cross"), "util_circuit_x", "circuit");
+}
+export function createUtilWater() {
+  return tagScene(utilCell("water", "end"), "util_water", "water");
+}
+export function createUtilWaterS() {
+  return tagScene(utilCell("water", "straight"), "util_water_s", "water");
+}
+export function createUtilWaterC() {
+  return tagScene(utilCell("water", "curve"), "util_water_c", "water");
+}
+export function createUtilWaterT() {
+  return tagScene(utilCell("water", "t"), "util_water_t", "water");
+}
+export function createUtilWaterX() {
+  return tagScene(utilCell("water", "cross"), "util_water_x", "water");
+}
 export function createBridge() {
   const g = new THREE.Group();
   g.add(box(2.2, 0.15, 5.0, mat(0x78716c), 0, 0.6, 0));
@@ -1150,6 +1308,16 @@ const BUILTIN_BUILDERS = {
   road_zebra: createRoadZebra,
   road_parking: createParking,
   road_bridge: createBridge,
+  util_circuit: createUtilCircuit,
+  util_circuit_s: createUtilCircuitS,
+  util_circuit_c: createUtilCircuitC,
+  util_circuit_t: createUtilCircuitT,
+  util_circuit_x: createUtilCircuitX,
+  util_water: createUtilWater,
+  util_water_s: createUtilWaterS,
+  util_water_c: createUtilWaterC,
+  util_water_t: createUtilWaterT,
+  util_water_x: createUtilWaterX,
 };
 
 export function listBuiltinIds() {

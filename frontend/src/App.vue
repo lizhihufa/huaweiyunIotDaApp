@@ -4,15 +4,16 @@ import { useRoute } from "vue-router";
 import { api } from "./api";
 import { DEFAULT_APPEARANCE, applyAppearance } from "./theme/presets";
 
-const TWIN_SUB_KEY = "hwy_twin_nav_open";
+const TWIN_SUB_KEY = "hwy_twin_nav_open_v2";
 
 const route = useRoute();
 const status = ref({ connected: false, settings_ready: false });
 const appearance = ref({ ...DEFAULT_APPEARANCE });
 const pageKey = ref(0);
 const osFullscreen = ref(false);
+/** 默认收起；仅用户主动展开后记住为打开 */
 const twinNavOpen = ref(
-  typeof localStorage !== "undefined" ? localStorage.getItem(TWIN_SUB_KEY) !== "0" : true
+  typeof localStorage !== "undefined" ? localStorage.getItem(TWIN_SUB_KEY) === "1" : false
 );
 
 const fullscreen = computed(() => !!route.meta.fullscreen);

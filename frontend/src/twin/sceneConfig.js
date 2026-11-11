@@ -1,5 +1,7 @@
 /** 各场景可配置项默认值与选项 */
 
+import { resolveEnvId } from "./sceneTypes";
+
 export const CROP_OPTIONS = [
   { id: "tomato", label: "番茄", color: 0xc23b22, leaf: 0x3f8f4a, height: 0.85 },
   { id: "cucumber", label: "黄瓜", color: 0x6bbf4e, leaf: 0x3f8f4a, height: 0.95 },
@@ -25,7 +27,8 @@ export const STREET_LAYOUT_OPTIONS = [
 
 export function defaultSceneConfig(sceneType = "street") {
   const common = { props: [] };
-  switch (sceneType) {
+  const env = resolveEnvId(sceneType);
+  switch (env) {
     case "blank":
       return {
         ...common,
@@ -65,7 +68,8 @@ export function defaultSceneConfig(sceneType = "street") {
 }
 
 export function mergeSceneConfig(sceneType, overlay = {}) {
-  return { ...defaultSceneConfig(sceneType), ...(overlay || {}) };
+  const env = resolveEnvId(sceneType);
+  return { ...defaultSceneConfig(env), ...(overlay || {}) };
 }
 
 export function cropMeta(list, id) {

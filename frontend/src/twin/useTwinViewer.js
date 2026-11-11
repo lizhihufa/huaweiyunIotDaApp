@@ -7,18 +7,33 @@ import {
 } from "./assembleFromAnnotations";
 import { layerOfProp } from "./buildGrid";
 import { attachViewPlanes, createTwinWorld } from "./createStreetLightScene";
-import { resolveModel } from "./loadModel";
+import { deepCloneModel, resolveModel } from "./loadModel";
 import { labelsMap, shapesMap } from "./partCatalog";
+import { resolveIndoorPlace } from "./indoorSnap";
 import { GRID_SNAP, snapToGrid } from "./placeCatalog";
-import { getSceneType } from "./sceneTypes";
+import { paintRoadCells } from "./buildGrid";
+import {
+  getSceneType,
+  resolveEnvId,
+  setCustomSceneTypeCache,
+} from "./sceneTypes";
+import { isUtilityKind } from "./utilityNetwork";
 
 const DEFAULT_LAYERS = {
   assembly: true,
   building: true,
   decoration: true,
   road: true,
+  circuit: false, // 默认隐藏；铺电路时再显示
+  water: true,
   device: true,
 };
+
+const LAYER_KEYS = new Set(Object.keys(DEFAULT_LAYERS));
+
+function isPaintNetworkKind(kind) {
+  return kind === "road" || isUtilityKind(kind);
+}
 
 export function useTwinViewer() {
   const selectedPartId = shallowRef(null);
@@ -32,8 +47,12 @@ export function useTwinViewer() {
   let onPlaceCallback = null;
   let onDeletePropCallback = null;
   let onPaintCallback = null; // 拖拽铺路批量放置
+  let onPlacePathCallback = null; // 点到点铺路
   let onMovePropCallback = null;
   let onBulldozeEndCallback = null;
+  /** @type {{ x: number, z: number } | null} */
+  let paintAnchor = null;
+  let pathPreviewGroup = null;
   /** @type {Record<string, THREE.Object3D>} */
   let propRootsById = {};
   /** @type {Record<string, { marker: THREE.Mesh, mats: THREE.Material[], blink: boolean, baseColor: number }>} */
@@ -69,6 +88,7 @@ export function useTwinViewer() {
   let currentViews = {};
   let currentSceneType = "street";
   let currentSceneConfig = {};
+  let customSceneTypes = [];
   let propMetaById = {};
   let placeGridHelper = null;
   let draggingPropId = null;
@@ -83,8 +103,22 @@ export function useTwinViewer() {
   const _spherical = new THREE.Spherical();
   const _up = new THREE.Vector3(0, 1, 0);
 
+  function sceneMeta(typeId = currentSceneType) {
+    return getSceneType(typeId, customSceneTypes);
+  }
+
+  function envIdOf(typeId = currentSceneType) {
+    return resolveEnvId(typeId, customSceneTypes);
+  }
+
+  function setCustomSceneTypes(list) {
+    customSceneTypes = Array.isArray(list) ? list : [];
+    setCustomSceneTypeCache(customSceneTypes);
+    if (scene) applySceneLook(currentSceneType);
+  }
+
   function applySceneLook(typeId) {
-    const meta = getSceneType(typeId);
+    const meta = sceneMeta(typeId);
     if (!scene) return;
     const bg = meta.bg ?? 0xdde6e0;
     scene.background = new THREE.Color(bg);
@@ -93,7 +127,7 @@ export function useTwinViewer() {
 
   function applyFog(meta) {
     if (!scene) return;
-    const m = meta || getSceneType(currentSceneType);
+    const m = meta || sceneMeta();
     if (!fogEnabled.value) {
       scene.fog = null;
       return;
@@ -166,7 +200,7 @@ export function useTwinViewer() {
 
     world = createTwinWorld(currentSceneType, currentSceneConfig);
     scene.add(world.root);
-    ensurePlaceGrid(buildMode.value || currentSceneType === "blank");
+    ensurePlaceGrid(buildMode.value || envIdOf() === "blank");
     setDayNight(lastSimHour, false);
 
     if (opts.views) {
@@ -231,21 +265,27 @@ export function useTwinViewer() {
     return ok ? target : null;
   }
 
+  /** 放置预览：透明度 60% → opacity 0.4 */
+  const GHOST_OPACITY = 0.4;
+
   function makeGhostTransparent(root) {
     root.traverse((c) => {
       if (!c.isMesh || !c.material) return;
       const mats = Array.isArray(c.material) ? c.material : [c.material];
-      c.material = mats.map((m) => {
+      const mapped = mats.map((m) => {
         const nm = m.clone();
         nm.transparent = true;
-        nm.opacity = 0.42;
+        nm.opacity = GHOST_OPACITY;
         nm.depthWrite = false;
+        if ("metalness" in nm) nm.metalness = Math.min(nm.metalness ?? 0, 0.2);
         return nm;
       });
-      if (!Array.isArray(c.material) && mats.length === 1) c.material = c.material[0];
+      c.material = mapped.length === 1 ? mapped[0] : mapped;
       c.castShadow = false;
       c.receiveShadow = false;
+      c.visible = true;
     });
+    root.visible = true;
   }
 
   async function ensureGhost(brush) {
@@ -260,7 +300,8 @@ export function useTwinViewer() {
       const root = await resolveModel(brush.model, { partId: brush.assetId });
       if (!root) return;
       makeGhostTransparent(root);
-      root.scale.setScalar(brush.source === "device" ? 1.2 : 1);
+      // GLB 已在 resolveModel 里按 fit 缩放过，勿 setScalar 冲掉
+      if (brush.source === "device") root.scale.multiplyScalar(1.6);
       ghostRoot = root;
       ghostModelKey = key;
       scene.add(ghostRoot);
@@ -284,6 +325,59 @@ export function useTwinViewer() {
     ghostModelKey = "";
   }
 
+  function clearPathPreview() {
+    if (pathPreviewGroup && scene) {
+      scene.remove(pathPreviewGroup);
+      pathPreviewGroup.traverse((o) => {
+        o.geometry?.dispose?.();
+        if (o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => m.dispose?.());
+        }
+      });
+    }
+    pathPreviewGroup = null;
+  }
+
+  function clearPaintAnchor() {
+    paintAnchor = null;
+    clearPathPreview();
+  }
+
+  async function updatePathPreview(endPt, brush) {
+    if (!scene || !paintAnchor || !brush || !endPt) {
+      clearPathPreview();
+      return;
+    }
+    const snap = resolveSnapForBrush(brush);
+    const cells = paintRoadCells(paintAnchor.x, paintAnchor.z, endPt.x, endPt.z, snap);
+    clearPathPreview();
+    if (!cells.length) return;
+    try {
+      const tpl = await resolveModel(brush.model, { partId: brush.assetId });
+      if (!tpl) return;
+      const group = new THREE.Group();
+      group.name = "pathPreview";
+      for (const c of cells) {
+        const root = deepCloneModel(tpl);
+        makeGhostTransparent(root);
+        root.position.set(c.x, 0.04, c.z);
+        root.scale.multiplyScalar(brush.source === "device" ? 1.2 : 1);
+        group.add(root);
+      }
+      scene.add(group);
+      pathPreviewGroup = group;
+    } catch {
+      clearPathPreview();
+    }
+  }
+
+  function resolveSnapForBrush(brush) {
+    if (isUtilityKind(brush?.kind)) return 1;
+    if (brush?.kind === "road") return Math.max(0.5, Number(brush.snap) || activeGridSize());
+    return Math.max(0.5, Number(brush.snap) || activeGridSize());
+  }
+
   function activeGridSize() {
     return Math.max(0.5, Number(currentSceneConfig.grid_size) || GRID_SNAP);
   }
@@ -295,7 +389,18 @@ export function useTwinViewer() {
   function updateGhostAt(pt, brush) {
     if (!ghostRoot || !brush || !pt) return;
     const { x, z } = snapPoint(pt, brush);
-    ghostRoot.position.set(x, 0.02, z);
+    let y = 0.02;
+    if (envIdOf() === "room" && brush.source === "device") {
+      const indoor = resolveIndoorPlace(x, z);
+      if (indoor) {
+        ghostRoot.position.set(indoor.x, indoor.y + 0.02, indoor.z);
+        ghostRoot.rotation.y = indoor.rotY || 0;
+        ghostRoot.visible = true;
+        return;
+      }
+    }
+    ghostRoot.position.set(x, y, z);
+    ghostRoot.rotation.y = 0;
     ghostRoot.visible = true;
   }
 
@@ -522,15 +627,15 @@ export function useTwinViewer() {
       return;
     }
 
-    // 马路拖拽铺设
-    if (placeBrush.value?.kind === "road") {
+    // 马路 / 电路 / 水管：支持拖拽连续铺，或点到点（松手未拖动时）
+    if (isPaintNetworkKind(placeBrush.value?.kind)) {
       painting = true;
       lastPaintKey = "";
       const pt = hitGround(ev);
-      if (pt && onPlaceCallback) {
+      if (pt) {
         const { x, z } = snapPoint(pt, placeBrush.value);
         lastPaintKey = `${x},${z}`;
-        onPlaceCallback({ x, y: 0, z, brush: placeBrush.value, paint: true });
+        // 拖拽过程中的格子在 move 里铺；此处只记起点，避免单击误铺一格
       }
       return;
     }
@@ -559,13 +664,26 @@ export function useTwinViewer() {
 
     if (placeBrush.value) {
       const pt = hitGround(ev);
-      updateGhostAt(pt, placeBrush.value);
-      if (painting && placeBrush.value.kind === "road" && pt && onPlaceCallback) {
+      if (isPaintNetworkKind(placeBrush.value.kind) && paintAnchor && pt && !painting) {
+        const { x, z } = snapPoint(pt, placeBrush.value);
+        updateGhostAt({ x, y: 0, z }, placeBrush.value);
+        void updatePathPreview({ x, z }, placeBrush.value);
+      } else {
+        updateGhostAt(pt, placeBrush.value);
+      }
+      if (painting && isPaintNetworkKind(placeBrush.value.kind) && pt && onPlaceCallback) {
         const { x, z } = snapPoint(pt, placeBrush.value);
         const key = `${x},${z}`;
         if (key !== lastPaintKey) {
+          // 真正拖过格子才铺，单击留给点到点
+          if (lastPaintKey) {
+            if (!paintAnchor) {
+              const [ax, az] = lastPaintKey.split(",").map(Number);
+              onPlaceCallback({ x: ax, y: 0, z: az, brush: placeBrush.value, paint: true });
+            }
+            onPlaceCallback({ x, y: 0, z, brush: placeBrush.value, paint: true });
+          }
           lastPaintKey = key;
-          onPlaceCallback({ x, y: 0, z, brush: placeBrush.value, paint: true });
         }
       }
       return;
@@ -627,19 +745,49 @@ export function useTwinViewer() {
       return;
     }
 
-    if (wasPainting && placeBrush.value?.kind === "road") {
-      onPaintCallback?.();
+    if (wasPainting && isPaintNetworkKind(placeBrush.value?.kind)) {
+      if (moved) {
+        // 拖拽铺设结束
+        clearPaintAnchor();
+        onPaintCallback?.();
+        return;
+      }
+      // 单击：点到点铺路
+      const pt = hitGround(ev);
+      if (!pt) {
+        onPaintCallback?.();
+        return;
+      }
+      const { x, z } = snapPoint(pt, placeBrush.value);
+      if (!paintAnchor) {
+        paintAnchor = { x, z };
+        void updatePathPreview({ x, z }, placeBrush.value);
+        updateGhostAt({ x, y: 0, z }, placeBrush.value);
+        return;
+      }
+      const snap = resolveSnapForBrush(placeBrush.value);
+      const cells = paintRoadCells(paintAnchor.x, paintAnchor.z, x, z, snap);
+      clearPaintAnchor();
+      if (cells.length && onPlacePathCallback) {
+        onPlacePathCallback({ cells, brush: placeBrush.value });
+      } else if (cells.length && onPlaceCallback) {
+        for (const c of cells) {
+          onPlaceCallback({ x: c.x, y: 0, z: c.z, brush: placeBrush.value, paint: true });
+        }
+        onPaintCallback?.();
+      }
       return;
     }
-    if (moved) return;
 
-    if (placeBrush.value && onPlaceCallback) {
+    // 设备 / 绿化等：即使轻微拖动也按落点放置（避免「点了没放上」）
+    if (placeBrush.value && onPlaceCallback && !isPaintNetworkKind(placeBrush.value.kind)) {
       const pt = hitGround(ev);
       if (!pt) return;
       const { x, z } = snapPoint(pt, placeBrush.value);
       onPlaceCallback({ x, y: 0, z, brush: placeBrush.value });
       return;
     }
+    if (moved) return;
 
     const pid = pickPropIdAtPointer(ev);
     if (pid) {
@@ -681,6 +829,7 @@ export function useTwinViewer() {
   function clearPlaceBrush() {
     placeBrush.value = null;
     clearGhost();
+    clearPaintAnchor();
     syncToolCursor();
     syncOrbitForTools();
   }
@@ -693,6 +842,9 @@ export function useTwinViewer() {
   }
   function setOnPaintEnd(cb) {
     onPaintCallback = cb;
+  }
+  function setOnPlacePath(cb) {
+    onPlacePathCallback = cb;
   }
   function setOnMoveProp(cb) {
     onMovePropCallback = cb;
@@ -717,7 +869,7 @@ export function useTwinViewer() {
       scene.add(placeGridHelper);
     }
     // 空地环境已自带网格，避免叠两层
-    const envHasGrid = currentSceneType === "blank";
+    const envHasGrid = envIdOf() === "blank";
     placeGridHelper.visible = !!visible && !envHasGrid;
   }
 
@@ -916,7 +1068,7 @@ export function useTwinViewer() {
     }
 
     const nightBg = 0x1e293b;
-    const meta = getSceneType(currentSceneType);
+    const meta = sceneMeta();
     const dayBg = meta.bg ?? 0xdde6e0;
     const c1 = new THREE.Color(dayBg);
     const c2 = new THREE.Color(nightBg);
@@ -941,9 +1093,25 @@ export function useTwinViewer() {
     }
   }
 
+  let wireLinkGroup = null;
+  let circuitReveal = false; // 铺电路 / 连线编辑时临时显示
+
   function setLayerVisible(layer, visible) {
     layers[layer] = !!visible;
     applyLayerVisibility();
+  }
+
+  /** 电路管网 + 设备连线：仅铺设/连线时可见 */
+  function setCircuitVisible(on) {
+    circuitReveal = !!on;
+    layers.circuit = circuitReveal;
+    applyLayerVisibility();
+    if (wireLinkGroup) wireLinkGroup.visible = circuitReveal;
+  }
+
+  function resolvePropLayer(meta = {}, fallbackChild) {
+    const raw = meta.layer || fallbackChild?.userData?.layer || layerOfProp(meta);
+    return LAYER_KEYS.has(raw) ? raw : layerOfProp(meta);
   }
 
   function applyLayerVisibility() {
@@ -954,14 +1122,70 @@ export function useTwinViewer() {
     const propsGroup = world.root.getObjectByName("sceneProps");
     propsGroup?.children?.forEach((child) => {
       if (child.isInstancedMesh) {
-        const layer = child.userData?.layer || "road";
+        const layer = resolvePropLayer({ layer: child.userData?.layer }, child);
         child.visible = layers[layer] !== false;
         return;
       }
       const meta = propMetaById[child.userData?.propId] || {};
-      const layer = meta.layer || layerOfProp(meta);
+      const layer = resolvePropLayer(meta, child);
       child.visible = layers[layer] !== false;
     });
+    if (wireLinkGroup) wireLinkGroup.visible = !!layers.circuit;
+  }
+
+  function clearWireLinkLines() {
+    if (!wireLinkGroup || !scene) return;
+    scene.remove(wireLinkGroup);
+    wireLinkGroup.traverse((o) => {
+      o.geometry?.dispose?.();
+      o.material?.dispose?.();
+    });
+    wireLinkGroup = null;
+  }
+
+  /**
+   * 画设备间逻辑电线，随电路层显隐。
+   * connected !== false → 黄；断路 → 红虚线感（半透明红）
+   * @param {Array<{from:string,to:string,connected?:boolean}>} links
+   * @param {Array<{id:string,x?:number,y?:number,z?:number}>} props
+   */
+  function syncWireLinkLines(links = [], props = [], { visible } = {}) {
+    if (!scene) return;
+    clearWireLinkLines();
+    const byId = Object.fromEntries((props || []).map((p) => [p.id, p]));
+    const group = new THREE.Group();
+    group.name = "wireLinks";
+    for (const link of links || []) {
+      const a = byId[link.from];
+      const b = byId[link.to];
+      if (!a || !b) continue;
+      const ok = link.connected !== false;
+      const color = Number.isFinite(Number(link.color))
+        ? Number(link.color)
+        : ok
+          ? 0xfbbf24
+          : 0xef4444;
+      const mat = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: ok ? 0.95 : 0.75,
+        depthTest: true,
+      });
+      const ay = (Number(a.y) || 0) + 0.35;
+      const by = (Number(b.y) || 0) + 0.35;
+      const pts = [
+        new THREE.Vector3(Number(a.x) || 0, ay, Number(a.z) || 0),
+        new THREE.Vector3(Number(b.x) || 0, by, Number(b.z) || 0),
+      ];
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const line = new THREE.Line(geo, mat);
+      line.userData.wireLinkId = link.id;
+      line.userData.connected = ok;
+      group.add(line);
+    }
+    group.visible = visible !== undefined ? !!visible : !!layers.circuit;
+    scene.add(group);
+    wireLinkGroup = group;
   }
 
   function setViews(views) {
@@ -995,7 +1219,7 @@ export function useTwinViewer() {
     if (currentViews && Object.values(currentViews).some(Boolean)) {
       setViews(currentViews);
     }
-    ensurePlaceGrid(buildMode.value || currentSceneType === "blank");
+    ensurePlaceGrid(buildMode.value || envIdOf() === "blank");
   }
 
   function setSceneConfig(config, { resetParts = false } = {}) {
@@ -1006,7 +1230,7 @@ export function useTwinViewer() {
     if (currentViews && Object.values(currentViews).some(Boolean)) {
       setViews(currentViews);
     }
-    ensurePlaceGrid(buildMode.value || currentSceneType === "blank");
+    ensurePlaceGrid(buildMode.value || envIdOf() === "blank");
   }
 
   async function applyAnnotations(annotations, views, projectParts = [], opts = {}) {
@@ -1017,7 +1241,7 @@ export function useTwinViewer() {
     let modelRoot = null;
     const assemblyModel =
       opts.assemblyModel ||
-      (currentSceneType === "street" ? { kind: "builtin", id: "street_light" } : null);
+      (envIdOf() === "street" ? { kind: "builtin", id: "street_light" } : null);
     if (assemblyModel && (assemblyModel.id || assemblyModel.url)) {
       try {
         modelRoot = await resolveModel(assemblyModel);
@@ -1078,19 +1302,9 @@ export function useTwinViewer() {
     return hit;
   }
 
-  /** 深拷贝几何/材质，避免 dispose 时毁掉模板缓存导致马路消失 */
+  /** 深拷贝几何/材质，避免 dispose 时毁掉模板缓存导致模型消失 */
   function clonePropRoot(tpl) {
-    const root = tpl.clone(true);
-    root.traverse((c) => {
-      if (!c.isMesh) return;
-      if (c.geometry) c.geometry = c.geometry.clone();
-      if (c.material) {
-        c.material = Array.isArray(c.material)
-          ? c.material.map((m) => m.clone())
-          : c.material.clone();
-      }
-    });
-    return root;
+    return deepCloneModel(tpl);
   }
 
   /**
@@ -1114,9 +1328,52 @@ export function useTwinViewer() {
     deviceStatusFx = {};
   }
 
+  function makePlaceholderRoot(def) {
+    const layer = layerOfProp(def);
+    const color = layer === "device" ? 0x38bdf8 : layer === "decoration" ? 0x65a30d : 0x94a3b8;
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.9, 0.9),
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.25,
+        roughness: 0.55,
+        metalness: 0.1,
+      })
+    );
+    body.position.y = 0.45;
+    g.add(body);
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.08, 0.5, 8),
+      new THREE.MeshStandardMaterial({ color: 0x44403c })
+    );
+    pole.position.y = 0.15;
+    g.add(pole);
+    return g;
+  }
+
+  function resolvePropModelSpec(def) {
+    const m = def?.model;
+    if (m && (m.kind === "glb" || m.kind === "gltf") && m.url) return m;
+    if (m && m.kind === "builtin" && m.id) return m;
+    if (m && m.url) return { kind: "glb", url: m.url, fit: m.fit };
+    if (m && m.id) return { kind: "builtin", id: m.id };
+    const aid = def?.asset_id;
+    if (aid) return { kind: "builtin", id: aid };
+    return null;
+  }
+
   async function applyScenePropListNow(propDefs, gen) {
     if (!world?.applySceneProps) return;
     if (gen !== applyPropsGen) return;
+
+    // 放置类图层始终保持可见，避免工程里存了 false 导致「放了看不见」
+    layers.device = true;
+    layers.decoration = true;
+    layers.road = true;
+    layers.building = true;
+    layers.water = true;
 
     propMetaById = {};
     propRootsById = {};
@@ -1124,49 +1381,74 @@ export function useTwinViewer() {
     const items = [];
     const templateCache = new Map();
 
-    async function loadTemplate(model) {
-      const key = `${model?.kind}:${model?.id || model?.url || ""}`;
+    async function loadTemplate(spec) {
+      const key = `${spec?.kind}:${spec?.id || spec?.url || ""}`;
       if (templateCache.has(key)) return templateCache.get(key);
-      const root = await resolveModel(model);
-      if (root) templateCache.set(key, root);
-      return root;
+      try {
+        const root = await resolveModel(spec);
+        if (root) {
+          templateCache.set(key, root);
+          return root;
+        }
+      } catch {
+        /* fall through */
+      }
+      return null;
     }
 
     const groups = new Map();
     for (const def of propDefs) {
-      const key = `${def.model?.kind}:${def.model?.id || def.model?.url || ""}:${layerOfProp(def)}`;
+      const spec = resolvePropModelSpec(def) || { kind: "builtin", id: "_placeholder" };
+      const key = `${spec.kind}:${spec.id || spec.url || ""}:${layerOfProp(def)}`;
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(def);
+      groups.get(key).push({ def, spec });
     }
 
     for (const [, list] of groups) {
       if (gen !== applyPropsGen) return;
-      const layer = layerOfProp(list[0]);
-      try {
-        const tpl = await loadTemplate(list[0].model || list[0]);
-        if (!tpl) continue;
-        for (const def of list) {
-          const root = clonePropRoot(tpl);
-          root.position.set(def.x || 0, def.y || 0, def.z || 0);
-          root.rotation.y = def.rotY || 0;
-          const s = def.scale || 1;
-          root.scale.setScalar(typeof s === "number" ? s : 1);
-          const propId = def.id || `prop_${items.length}`;
-          root.userData.propId = propId;
-          root.name = propId;
-          propMetaById[propId] = { ...def, layer };
-          propRootsById[propId] = root;
-          root.traverse((c) => {
-            if (c.isMesh) {
-              c.userData.propId = propId;
-              c.castShadow = true;
-              c.receiveShadow = true;
+      const layer = layerOfProp(list[0].def);
+      let tpl = null;
+      if (list[0].spec?.id !== "_placeholder") {
+        tpl = await loadTemplate(list[0].spec);
+      }
+      for (const { def } of list) {
+        let root = tpl ? clonePropRoot(tpl) : null;
+        if (!root) root = makePlaceholderRoot(def);
+        // 清除可能残留的透明（预览材质不应进实体，这里兜底）
+        root.traverse((c) => {
+          if (!c.isMesh || !c.material) return;
+          const mats = Array.isArray(c.material) ? c.material : [c.material];
+          for (const m of mats) {
+            if (!m) continue;
+            if (m.transparent && m.opacity < 0.99) {
+              m.transparent = false;
+              m.opacity = 1;
+              m.depthWrite = true;
             }
-          });
-          items.push({ root });
-        }
-      } catch {
-        /* ignore */
+            m.needsUpdate = true;
+          }
+        });
+        root.position.set(def.x || 0, def.y || 0, def.z || 0);
+        root.rotation.y = def.rotY || 0;
+        const s = typeof def.scale === "number" ? def.scale : 1;
+        if (s !== 1) root.scale.multiplyScalar(s);
+        const propId = def.id || `prop_${items.length}`;
+        root.userData.propId = propId;
+        root.userData.layer = layer;
+        root.name = propId;
+        root.visible = true;
+        propMetaById[propId] = { ...def, layer };
+        propRootsById[propId] = root;
+        root.traverse((c) => {
+          if (c.isMesh) {
+            c.userData.propId = propId;
+            c.userData.layer = layer;
+            c.visible = true;
+            c.castShadow = true;
+            c.receiveShadow = true;
+          }
+        });
+        items.push({ root });
       }
     }
 
@@ -1329,7 +1611,7 @@ export function useTwinViewer() {
 
   function setBuildMode(on) {
     buildMode.value = !!on;
-    ensurePlaceGrid(buildMode.value || currentSceneType === "blank");
+    ensurePlaceGrid(buildMode.value || envIdOf() === "blank");
     if (on) {
       // 略抬高俯视，仍可用 WASD / QE / ZX 自由移动，不强制钉死原点
       setCameraPreset("build");
@@ -1357,6 +1639,7 @@ export function useTwinViewer() {
     window.removeEventListener("blur", clearHeldKeys);
     clearHeldKeys();
     clearPlaceBrush();
+    clearWireLinkLines();
     clearOutline();
     clearDeviceStatusFx();
     propRootsById = {};
@@ -1422,13 +1705,18 @@ export function useTwinViewer() {
     setOnPlace,
     setOnDeleteProp,
     setOnPaintEnd,
+    setOnPlacePath,
     setOnMoveProp,
     setOnBulldozeEnd,
+    clearPaintAnchor,
     setBulldozeMode,
     setLampOn,
     setDayNight,
     setFogEnabled,
     setLayerVisible,
+    setCircuitVisible,
+    syncWireLinkLines,
+    clearWireLinkLines,
     setViews,
     setCameraPreset,
     focusLookAt,
@@ -1440,6 +1728,7 @@ export function useTwinViewer() {
     applyAnnotations,
     applyScenePropList,
     resetDefaultModel,
+    setCustomSceneTypes,
     setSceneType,
     setSceneConfig,
   };

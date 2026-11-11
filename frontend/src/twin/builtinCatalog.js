@@ -104,4 +104,6 @@ export const SCENE_BUILTIN_OPTIONS = [
   { id: "road_zebra", label: "斑马线" },
   { id: "road_parking", label: "停车位" },
   { id: "road_bridge", label: "小桥" },
+  { id: "util_circuit", label: "电路（自动接管）" },
+  { id: "util_water", label: "水管（自动接管）" },
 ];
